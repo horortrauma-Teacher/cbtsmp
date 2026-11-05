@@ -1,0 +1,399 @@
+{
+  "app": "kantor-agent",
+  "version": "1.0.0",
+  "now": "2026-11-05T13:56:32.222Z",
+  "project": "CBT SMP & SMA EduNusantara - Multi-Tenant Guru & Clean DB",
+  "names": "Avero|El Fath|Zia|Heelwa|Mikaila|Rayhan|Salman",
+  "transcripts": true,
+  "public_url": "https://heru89.vercel.app",
+  "ketua": {
+    "key": "ketua",
+    "name": "Avero",
+    "label": "Avero",
+    "role": "Ketua",
+    "kind": "ketua",
+    "color": "#6a55c9",
+    "state": "bekerja",
+    "activity": "mengorkestrasi-multi-tenant",
+    "session": "anti-sess",
+    "updated": "2026-11-05T13:56:32.222Z",
+    "last": [
+      {
+        "t": "2026-11-05T13:56:32.222Z",
+        "kind": "tool",
+        "tool": "deploy_vercel",
+        "text": "Avero: Memvalidasi pembersihan database & deployment registrasi mandiri guru ke Vercel (Step #10302)"
+      }
+    ],
+    "tools": 10382,
+    "tokens": 12582400,
+    "waiting_on": 5,
+    "other_sessions": 0,
+    "sessions": 1,
+    "todos": {
+      "items": [
+        {
+          "text": "Pembersihan Total Riwayat Lama di Supabase & Local Cache",
+          "status": "completed"
+        },
+        {
+          "text": "Sistem Registrasi & Login Mandiri Guru di Supabase",
+          "status": "completed"
+        },
+        {
+          "text": "Isolasi Bank Soal & Direktori Penyimpanan Per Guru",
+          "status": "completed"
+        },
+        {
+          "text": "Build Next.js 14 Bundle dengan Halaman /guru/register",
+          "status": "completed"
+        },
+        {
+          "text": "Deployment Produksi Terbaru ke https://heru89.vercel.app",
+          "status": "in_progress"
+        }
+      ],
+      "at": "2026-11-05T13:56:32.222Z",
+      "source": "antigravity-hub"
+    }
+  },
+  "team": [
+    {
+      "key": "tim-0",
+      "name": "El Fath",
+      "label": "El Fath",
+      "color": "#3f6fd1",
+      "kind": "tim",
+      "slot": 0,
+      "desk": 0,
+      "state": "bekerja",
+      "run": {
+        "id": "run-multi-tenant-001-10302",
+        "agent_type": "Database Architect",
+        "task": "Isolasi direktori penyimpanan (guru/{username}) & bank soal mandiri",
+        "status": "bekerja",
+        "reason": null,
+        "segment": 1,
+        "started": "2026-11-05T13:46:32.222Z",
+        "ended": null,
+        "updated": "2026-11-05T13:56:32.222Z",
+        "last": [
+          {
+            "t": "2026-11-05T13:56:32.222Z",
+            "kind": "tool",
+            "tool": "edit_file",
+            "text": "El Fath: Isolasi direktori penyimpanan (guru/{username}) & bank soal mandiri"
+          }
+        ],
+        "files": [
+          "src/lib/supabase-service.ts",
+          "data/cbt-local-db.json"
+        ],
+        "tools": 20629,
+        "tokens": 7276400
+      }
+    },
+    {
+      "key": "tim-1",
+      "name": "Zia",
+      "label": "Zia",
+      "color": "#2f9a6d",
+      "kind": "tim",
+      "slot": 1,
+      "desk": 1,
+      "state": "bekerja",
+      "run": {
+        "id": "run-multi-tenant-002-10302",
+        "agent_type": "Student UI/UX Dev",
+        "task": "Proteksi rute dasbor guru bagi pengguna yang belum login",
+        "status": "bekerja",
+        "reason": null,
+        "segment": 1,
+        "started": "2026-11-05T13:46:32.222Z",
+        "ended": null,
+        "updated": "2026-11-05T13:56:32.222Z",
+        "last": [
+          {
+            "t": "2026-11-05T13:56:32.222Z",
+            "kind": "tool",
+            "tool": "run_command",
+            "text": "Zia: Proteksi rute dasbor guru bagi pengguna yang belum login"
+          }
+        ],
+        "files": [
+          "src/app/guru/register/page.tsx",
+          "src/app/guru/login/page.tsx"
+        ],
+        "tools": 20630,
+        "tokens": 7277900
+      }
+    },
+    {
+      "key": "tim-2",
+      "name": "Heelwa",
+      "label": "Heelwa",
+      "color": "#d9772f",
+      "kind": "tim",
+      "slot": 2,
+      "desk": 2,
+      "state": "bekerja",
+      "run": {
+        "id": "run-multi-tenant-003-10302",
+        "agent_type": "Teacher Admin Dev",
+        "task": "Memastikan Bank Soal baru guru yang mendaftar berstatus bersih (0 soal)",
+        "status": "bekerja",
+        "reason": null,
+        "segment": 1,
+        "started": "2026-11-05T13:46:32.222Z",
+        "ended": null,
+        "updated": "2026-11-05T13:56:32.222Z",
+        "last": [
+          {
+            "t": "2026-11-05T13:56:32.222Z",
+            "kind": "tool",
+            "tool": "write_file",
+            "text": "Heelwa: Memastikan Bank Soal baru guru yang mendaftar berstatus bersih (0 soal)"
+          }
+        ],
+        "files": [
+          "src/app/guru/bank-soal/page.tsx",
+          "src/app/guru/jadwal/page.tsx"
+        ],
+        "tools": 20631,
+        "tokens": 7279400
+      }
+    },
+    {
+      "key": "tim-3",
+      "name": "Mikaila",
+      "label": "Mikaila",
+      "color": "#c2417a",
+      "kind": "tim",
+      "slot": 3,
+      "desk": 3,
+      "state": "bekerja",
+      "run": {
+        "id": "run-multi-tenant-004-10302",
+        "agent_type": "Backend Specialist",
+        "task": "Build Next.js 14 Production bundle dengan rute baru /guru/register",
+        "status": "bekerja",
+        "reason": null,
+        "segment": 1,
+        "started": "2026-11-05T13:46:32.222Z",
+        "ended": null,
+        "updated": "2026-11-05T13:56:32.222Z",
+        "last": [
+          {
+            "t": "2026-11-05T13:56:32.222Z",
+            "kind": "tool",
+            "tool": "verify_db",
+            "text": "Mikaila: Build Next.js 14 Production bundle dengan rute baru /guru/register"
+          }
+        ],
+        "files": [
+          "src/app/api/cbt/sync/route.ts",
+          "src/lib/store.ts"
+        ],
+        "tools": 20632,
+        "tokens": 7280900
+      }
+    },
+    {
+      "key": "tim-4",
+      "name": "Salman",
+      "label": "Salman",
+      "color": "#e11d48",
+      "kind": "tim",
+      "slot": 4,
+      "desk": 4,
+      "state": "bekerja",
+      "run": {
+        "id": "run-multi-tenant-005-10302",
+        "agent_type": "Security & Vulnerability Specialist",
+        "task": "Pemeriksaan Row Level Security (RLS) & isolasi tabel login Supabase",
+        "status": "bekerja",
+        "reason": null,
+        "segment": 1,
+        "started": "2026-11-05T13:46:32.222Z",
+        "ended": null,
+        "updated": "2026-11-05T13:56:32.222Z",
+        "last": [
+          {
+            "t": "2026-11-05T13:56:32.222Z",
+            "kind": "tool",
+            "tool": "edit_file",
+            "text": "Salman: Pemeriksaan Row Level Security (RLS) & isolasi tabel login Supabase"
+          }
+        ],
+        "files": [
+          "src/lib/security.ts",
+          "src/app/api/cbt/admin/users/route.ts"
+        ],
+        "tools": 20633,
+        "tokens": 7282400
+      }
+    }
+  ],
+  "freelancers": [
+    {
+      "key": "fl-rayhan-01",
+      "name": "Rayhan",
+      "label": "Rayhan",
+      "color": "#0f8fa3",
+      "kind": "freelancer",
+      "slot": 0,
+      "desk": 0,
+      "state": "bekerja",
+      "run": {
+        "id": "run-fl-001-10302",
+        "agent_type": "AI Accuracy & Grounding Specialist",
+        "task": "Pengujian tautan ujian siswa pada jadwal guru baru (200 OK)",
+        "status": "bekerja",
+        "reason": null,
+        "segment": 1,
+        "started": "2026-11-05T13:49:52.222Z",
+        "ended": null,
+        "updated": "2026-11-05T13:56:32.222Z",
+        "last": [
+          {
+            "t": "2026-11-05T13:56:32.222Z",
+            "kind": "tool",
+            "tool": "run_test",
+            "text": "Rayhan: Pengujian tautan ujian siswa pada jadwal guru baru (200 OK)"
+          }
+        ],
+        "files": [
+          "src/lib/guru-auth.ts",
+          "src/types/cbt.ts"
+        ],
+        "tools": 10324,
+        "tokens": 5200000
+      }
+    }
+  ],
+  "feed": [
+    {
+      "t": "2026-11-05T13:56:32.222Z",
+      "who": "tim-2",
+      "name": "Heelwa",
+      "color": "#d9772f",
+      "kind": "tool",
+      "text": "Heelwa: Penyetelan kuota generate AI soal HOTS per akun guru mandiri",
+      "tool": "edit_file"
+    },
+    {
+      "t": "2026-11-05T13:56:30.722Z",
+      "who": "ketua",
+      "name": "Avero",
+      "color": "#6a55c9",
+      "kind": "assign",
+      "text": "Avero: Seluruh data lama telah dibersihkan! Guru sekarang dapat mendaftar mandiri dengan bank soal & direktori terpisah.",
+      "tool": "delegate_task"
+    },
+    {
+      "t": "2026-11-05T13:56:29.222Z",
+      "who": "fl-rayhan-01",
+      "name": "Rayhan",
+      "color": "#0f8fa3",
+      "kind": "tool",
+      "text": "Rayhan: Pengujian tautan ujian siswa pada jadwal guru baru (200 OK)",
+      "tool": "run_test"
+    }
+  ],
+  "runs": [
+    {
+      "id": "run-multi-tenant-001-10302",
+      "who": "tim-0",
+      "name": "El Fath",
+      "label": "El Fath",
+      "color": "#3f6fd1",
+      "kind": "tim",
+      "agent_type": "Database Architect",
+      "task": "Isolasi direktori penyimpanan (guru/{username}) & bank soal mandiri",
+      "status": "bekerja",
+      "started": "2026-11-05T13:46:32.222Z",
+      "ended": null,
+      "tools": 20629
+    },
+    {
+      "id": "run-multi-tenant-002-10302",
+      "who": "tim-1",
+      "name": "Zia",
+      "label": "Zia",
+      "color": "#2f9a6d",
+      "kind": "tim",
+      "agent_type": "Student UI/UX Dev",
+      "task": "Proteksi rute dasbor guru bagi pengguna yang belum login",
+      "status": "bekerja",
+      "started": "2026-11-05T13:46:32.222Z",
+      "ended": null,
+      "tools": 20630
+    },
+    {
+      "id": "run-multi-tenant-003-10302",
+      "who": "tim-2",
+      "name": "Heelwa",
+      "label": "Heelwa",
+      "color": "#d9772f",
+      "kind": "tim",
+      "agent_type": "Teacher Admin Dev",
+      "task": "Memastikan Bank Soal baru guru yang mendaftar berstatus bersih (0 soal)",
+      "status": "bekerja",
+      "started": "2026-11-05T13:46:32.222Z",
+      "ended": null,
+      "tools": 20631
+    },
+    {
+      "id": "run-multi-tenant-004-10302",
+      "who": "tim-3",
+      "name": "Mikaila",
+      "label": "Mikaila",
+      "color": "#c2417a",
+      "kind": "tim",
+      "agent_type": "Backend Specialist",
+      "task": "Build Next.js 14 Production bundle dengan rute baru /guru/register",
+      "status": "bekerja",
+      "started": "2026-11-05T13:46:32.222Z",
+      "ended": null,
+      "tools": 20632
+    },
+    {
+      "id": "run-multi-tenant-005-10302",
+      "who": "tim-4",
+      "name": "Salman",
+      "label": "Salman",
+      "color": "#e11d48",
+      "kind": "tim",
+      "agent_type": "Security & Vulnerability Specialist",
+      "task": "Pemeriksaan Row Level Security (RLS) & isolasi tabel login Supabase",
+      "status": "bekerja",
+      "started": "2026-11-05T13:46:32.222Z",
+      "ended": null,
+      "tools": 20633
+    },
+    {
+      "id": "run-fl-001-10302",
+      "who": "fl-rayhan-01",
+      "name": "Rayhan",
+      "label": "Rayhan",
+      "color": "#0f8fa3",
+      "kind": "freelancer",
+      "agent_type": "AI Accuracy & Grounding Specialist",
+      "task": "Pengujian tautan ujian siswa pada jadwal guru baru (200 OK)",
+      "status": "bekerja",
+      "started": "2026-11-05T13:49:52.222Z",
+      "ended": null,
+      "tools": 10324
+    }
+  ],
+  "stats": {
+    "active": 5,
+    "freelancers": 1,
+    "total": 5,
+    "recent_starts": [
+      "2026-11-05T13:56:32.222Z"
+    ],
+    "sessions_active": 1
+  },
+  "spare_desks": 3
+}

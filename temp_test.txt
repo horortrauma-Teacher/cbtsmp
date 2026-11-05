@@ -1,0 +1,7 @@
+
+BAB 2: BERPIKIR KOMPUTASIONAL (COMPUTATIONAL THINKING)
+1. Dekomposisi: Memecah masalah kompleks menjadi bagian-bagian yang lebih kecil dan mudah dikelola. Contoh: Menyusun jadwal piket dengan membagi tugas per hari dan area kerja.
+2. Pengenalan Pola: Melihat kesamaan atau pola pada masalah yang berulang untuk menemukan solusi efektif.
+3. Abstraksi: Memfokuskan pada informasi penting dan mengabaikan detail yang tidak relevan.
+4. Algoritma: Menyusun langkah-langkah terurut dan logis untuk menyelesaikan masalah secara sistematis.
+Contoh Kasus: Sistem antrean rumah sakit menggunakan algoritma FIFO (First In First Out) dengan penanganan prioritas untuk unit gawat darurat (Emergency Priority).

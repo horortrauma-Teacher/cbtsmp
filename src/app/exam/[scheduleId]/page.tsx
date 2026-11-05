@@ -642,7 +642,7 @@ export default function StudentExamPage() {
             </div>
             <div>
               <span className="font-extrabold text-base tracking-tight text-slate-800">
-                CBT EduNusantara
+                CBT Guru Hebat Indonesia
               </span>
               <span className="ml-2 text-[10px] font-bold bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full border border-sky-200">
                 Portal Siswa
@@ -786,7 +786,7 @@ export default function StudentExamPage() {
 
         {/* Footer */}
         <footer className="text-center text-xs text-slate-400 py-2">
-          &copy; 2026 CBT EduNusantara &bull; Pelaksanaan Asesmen Kompetensi Siswa
+          &copy; 2026 CBT Guru Hebat Indonesia &bull; Pelaksanaan Asesmen Kompetensi Siswa
         </footer>
       </div>
     );

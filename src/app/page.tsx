@@ -106,7 +106,7 @@ export default function HomePage() {
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-sky-700 to-indigo-800 bg-clip-text text-transparent">
-                CBT EduNusantara
+                CBT Guru Hebat Indonesia
               </span>
               <span className="hidden sm:inline-block ml-2 px-2 py-0.5 text-[10px] font-semibold bg-sky-100 text-sky-800 rounded-full border border-sky-200">
                 Fase D (SMP) & SMA
@@ -420,7 +420,7 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white/70 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>&copy; 2026 CBT EduNusantara. Platform Asesmen SMP Fase D & SMA.</span>
+          <span>&copy; 2026 CBT Guru Hebat Indonesia. Platform Asesmen SMP Fase D & SMA.</span>
           <div className="flex items-center gap-4 text-slate-600">
             <span>Next.js App Router</span>
             <span>&bull;</span>

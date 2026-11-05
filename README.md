@@ -1,4 +1,4 @@
-# CBT EduNusantara - Platform Computer Based Test (SMP Fase D & SMA)
+# CBT Guru Hebat Indonesia - Platform Computer Based Test (SMP Fase D & SMA)
 
 Platform Computer Based Test (CBT) modern berbasis **Next.js (App Router)**, **Tailwind CSS**, dan **Supabase PostgreSQL** yang dirancang khusus untuk Asesmen Kompetensi Minimum (AKM) Literasi Membaca & Numerasi serta evaluasi berpikir tingkat tinggi (HOTS - Higher Order Thinking Skills) Kurikulum Merdeka.
 

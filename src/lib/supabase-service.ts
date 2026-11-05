@@ -109,7 +109,7 @@ export async function registerGuruToDb(account: {
 
     return {
       success: true,
-      message: 'Pendaftaran akun guru berhasil! Selamat datang di CBT EduNusantara.',
+      message: 'Pendaftaran akun guru berhasil! Selamat datang di CBT Guru Hebat Indonesia.',
       account: newGuru,
     };
   } catch (err: any) {
@@ -135,7 +135,7 @@ export async function loginGuruFromDb(
         password: 'cbt2026',
         namaLengkap: 'Administrator CBT',
         nip: '198001012005011001',
-        sekolah: 'Pusat Manajemen CBT EduNusantara',
+        sekolah: 'Pusat Manajemen CBT Guru Hebat Indonesia',
         mataPelajaran: 'Super Administrator',
         role: 'admin',
         storageDir: 'admin/central',

@@ -1,5 +1,5 @@
 -- ==============================================================================
--- SETUP TABEL CBT EDUNUSANTARA (SUPABASE POSTGRESQL)
+-- SETUP TABEL CBT GURU HEBAT INDONESIA (SUPABASE POSTGRESQL)
 -- Dikelola oleh: El Fath (Database Architect)
 -- Cara Pakai: Copy-paste seluruh skrip ini ke SQL Editor di Dashboard Supabase lalu klik "Run".
 -- ==============================================================================

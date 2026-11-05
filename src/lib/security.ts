@@ -1,5 +1,5 @@
 /**
- * CBT EduNusantara Security Suite
+ * CBT Guru Hebat Indonesia Security Suite
  * Dikelola oleh: Salman (Security & Vulnerability Specialist)
  * Bertugas mengamankan aplikasi dari OWASP Top 10, sanitasi input,
  * perlindungan XSS/SQL Injection, pengamanan sesi, dan audit trail Help Desk.

@@ -140,3 +140,21 @@ export interface SiswaAccount {
   status: 'aktif' | 'nonaktif';
   createdAt: string;
 }
+
+export interface LiveStudentProgress {
+  scheduleId: string;
+  studentId: string;
+  studentName: string;
+  kelas: string;
+  nisn: string;
+  totalQuestions: number;
+  answeredCount: number;
+  currentQuestionIndex: number;
+  remainingSeconds: number;
+  violationsCount: number;
+  isLocked: boolean;
+  lockRemainingSeconds: number;
+  status: 'MENGERJAKAN' | 'TERKUNCI' | 'SELESAI';
+  lastActive: string;
+  forceUnlock?: boolean;
+}

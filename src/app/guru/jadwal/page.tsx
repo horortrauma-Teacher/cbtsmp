@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   CalendarClock,
@@ -29,10 +29,13 @@ import {
   Share2,
   Send,
   MessageCircle,
-  ExternalLink
+  ExternalLink,
+  Search,
+  Filter,
+  Radio
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
-import { JadwalUjian, Fase } from '@/types/cbt';
+import { JadwalUjian, Fase, Soal, TipeSoal } from '@/types/cbt';
 import { getGuruProfile, GuruProfile } from '@/lib/guru-auth';
 import {
   JenjangPendidikan,
@@ -41,6 +44,67 @@ import {
   TopikMateri,
   MataPelajaranDetail
 } from '@/lib/curriculum-data';
+
+/**
+ * Filter cerdas untuk mencocokkan butir soal dengan Jenjang & Mata Pelajaran
+ */
+function isSoalMatchingMapelAndJenjang(
+  s: Soal,
+  targetJenjang: JenjangPendidikan,
+  targetMapel: string
+): boolean {
+  if (!targetMapel) return true;
+
+  // 1. Jenjang check
+  if (s.jenjang && s.jenjang !== targetJenjang) {
+    return false;
+  }
+  if (s.fase) {
+    if (targetJenjang === 'SMP' && (s.fase.includes('SMA') || s.fase.includes('Fase E') || s.fase.includes('Fase F'))) {
+      return false;
+    }
+    if (targetJenjang === 'SMA' && (s.fase.includes('SMP') || s.fase.includes('Fase D'))) {
+      return false;
+    }
+  }
+
+  // 2. Normalization
+  const cleanTarget = targetMapel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanSoal = (s.mataPelajaran || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (!cleanSoal) return false;
+  if (cleanTarget === cleanSoal) return true;
+  if (cleanTarget.includes(cleanSoal) || cleanSoal.includes(cleanTarget)) return true;
+
+  // 3. Subject core keywords
+  const roots = [
+    'indonesia',
+    'inggris',
+    'matematika',
+    'informatika',
+    'ipa',
+    'ips',
+    'pancasila',
+    'pkn',
+    'agama',
+    'pjok',
+    'seni',
+    'fisika',
+    'kimia',
+    'biologi',
+    'ekonomi',
+    'geografi',
+    'sosiologi',
+    'sejarah',
+  ];
+  for (const root of roots) {
+    if (cleanTarget.includes(root) && cleanSoal.includes(root)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export default function JadwalCBTPage() {
   const { soalList, allSoalList, jadwalList, allJadwalList, addJadwal, updateJadwalStatus, deleteJadwal } = useCBTData();
@@ -110,6 +174,11 @@ export default function JadwalCBTPage() {
   // Selected questions from Bank Soal
   const [selectedSoalIds, setSelectedSoalIds] = useState<string[]>([]);
 
+  // Picker Filter, Search, and Scope states
+  const [filterTipeSoal, setFilterTipeSoal] = useState<'ALL' | TipeSoal>('ALL');
+  const [searchQuerySoal, setSearchQuerySoal] = useState<string>('');
+  const [showAllMapelSoal, setShowAllMapelSoal] = useState<boolean>(false);
+
   // Update mapel list when jenjang changes
   useEffect(() => {
     const list = getMataPelajaranByJenjang(jenjangForm);
@@ -137,16 +206,74 @@ export default function JadwalCBTPage() {
     }
   }, [jenjangForm, mapel]);
 
-  // Auto-select questions when modal opens if available
+  // Questions strictly matching the active Subject and Level
+  const mapelQuestions = useMemo(() => {
+    return soalList.filter((s) => isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel));
+  }, [soalList, jenjangForm, mapel]);
+
+  // Filtered questions displayed in picker
+  const displayedPickerQuestions = useMemo(() => {
+    const baseList = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
+    return baseList.filter((s) => {
+      // Type filter
+      if (filterTipeSoal !== 'ALL' && s.tipeSoal !== filterTipeSoal) {
+        return false;
+      }
+      // Search text filter
+      if (searchQuerySoal.trim()) {
+        const q = searchQuerySoal.toLowerCase();
+        const textMatch =
+          (s.pertanyaan || '').toLowerCase().includes(q) ||
+          (s.topik || '').toLowerCase().includes(q) ||
+          (s.mataPelajaran || '').toLowerCase().includes(q);
+        if (!textMatch) return false;
+      }
+      return true;
+    });
+  }, [soalList, mapelQuestions, showAllMapelSoal, filterTipeSoal, searchQuerySoal]);
+
+  // Type counts based on current active scope
+  const typeCounts = useMemo(() => {
+    const baseList = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
+    return {
+      ALL: baseList.length,
+      PG: baseList.filter((s) => s.tipeSoal === 'PG').length,
+      PGK: baseList.filter((s) => s.tipeSoal === 'PGK').length,
+      MENJODOHKAN: baseList.filter((s) => s.tipeSoal === 'MENJODOHKAN').length,
+      URAIAN: baseList.filter((s) => s.tipeSoal === 'URAIAN').length,
+    };
+  }, [soalList, mapelQuestions, showAllMapelSoal]);
+
+  // Auto-select questions: ONLY select questions matching the active subject & jenjang!
   useEffect(() => {
-    if (isFormOpen && soalList.length > 0 && selectedSoalIds.length === 0) {
-      setSelectedSoalIds(soalList.map((s) => s.id));
+    if (isFormOpen && soalList.length > 0) {
+      const matched = soalList.filter((s) => isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel));
+      // Auto-select the matched questions for this subject only
+      if (matched.length > 0) {
+        setSelectedSoalIds(matched.map((s) => s.id));
+      } else {
+        setSelectedSoalIds([]);
+      }
     }
-  }, [isFormOpen, soalList]);
+  }, [isFormOpen, jenjangForm, mapel, soalList]);
 
   // Calculate total selected count and bobot
-  const selectedQuestions = soalList.filter((s) => selectedSoalIds.includes(s.id));
-  const totalSelectedBobot = selectedQuestions.reduce((sum, s) => sum + s.bobot, 0);
+  const selectedQuestions = useMemo(() => {
+    return soalList.filter((s) => selectedSoalIds.includes(s.id));
+  }, [soalList, selectedSoalIds]);
+
+  const totalSelectedBobot = useMemo(() => {
+    return selectedQuestions.reduce((sum, s) => sum + s.bobot, 0);
+  }, [selectedQuestions]);
+
+  const selectedCountByType = useMemo(() => {
+    return {
+      PG: selectedQuestions.filter((s) => s.tipeSoal === 'PG').length,
+      PGK: selectedQuestions.filter((s) => s.tipeSoal === 'PGK').length,
+      MENJODOHKAN: selectedQuestions.filter((s) => s.tipeSoal === 'MENJODOHKAN').length,
+      URAIAN: selectedQuestions.filter((s) => s.tipeSoal === 'URAIAN').length,
+    };
+  }, [selectedQuestions]);
 
   // Toggle question selection
   const handleToggleSoal = (id: string) => {
@@ -155,6 +282,22 @@ export default function JadwalCBTPage() {
     } else {
       setSelectedSoalIds([...selectedSoalIds, id]);
     }
+  };
+
+  // Quick preset actions for teacher convenience
+  const handleSelectOnlyPgAndEssay = () => {
+    const targetPool = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
+    const pgAndEssay = targetPool.filter((s) => s.tipeSoal === 'PG' || s.tipeSoal === 'URAIAN');
+    setSelectedSoalIds(pgAndEssay.map((s) => s.id));
+  };
+
+  const handleSelectAllMapel = () => {
+    const targetPool = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
+    setSelectedSoalIds(targetPool.map((s) => s.id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedSoalIds([]);
   };
 
   // Toggle class target selection
@@ -208,8 +351,12 @@ export default function JadwalCBTPage() {
 
     addJadwal(newJadwal);
     setIsFormOpen(false);
-    // Reset
+    // Reset form states
     setJudul('');
+    setSelectedSoalIds([]);
+    setFilterTipeSoal('ALL');
+    setSearchQuerySoal('');
+    setShowAllMapelSoal(false);
     alert(`Jadwal Ujian "${judul}" berhasil dibuat dan siap dikerjakan oleh siswa!`);
   };
 
@@ -352,6 +499,16 @@ export default function JadwalCBTPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Live Progress Monitoring Button */}
+                    <Link
+                      href={`/guru/monitoring?scheduleId=${jadwal.id}`}
+                      className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                      title="Pantau progres murid secara real-time dan deteksi pelanggaran tab"
+                    >
+                      <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                      <span>📡 Pantau Progres (Live)</span>
+                    </Link>
+
                     {/* Share Link to Students */}
                     <button
                       type="button"
@@ -646,30 +803,144 @@ export default function JadwalCBTPage() {
 
               {/* QUESTION PICKER SECTION */}
               <div className="space-y-3 pt-3 border-t border-slate-100">
-                <div className="flex items-center justify-between">
+                {/* Header & Quick Action Buttons */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-900">
-                      Pilih Paket Butir Soal dari Bank Soal ({selectedSoalIds.length} terpilih)
-                    </label>
-                    <p className="text-[11px] text-slate-500">
-                      Total Akumulasi Bobot: <span className="font-bold text-blue-600">{totalSelectedBobot} Poin</span>
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-900">
+                        Pilih Paket Butir Soal ({selectedSoalIds.length} Terpilih)
+                      </label>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200">
+                        {mapel} ({jenjangForm})
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
+                      <span>
+                        Total Bobot: <strong className="text-blue-600 font-bold">{totalSelectedBobot} Poin</strong>
+                      </span>
+                      <span className="text-slate-300">•</span>
+                      <span className="text-slate-600">
+                        Rincian: PG ({selectedCountByType.PG}), PGK ({selectedCountByType.PGK}), Menjodohkan ({selectedCountByType.MENJODOHKAN}), Uraian ({selectedCountByType.URAIAN})
+                      </span>
+                    </div>
                   </div>
-                  {soalList.length > 0 && (
+
+                  {/* Quick Presets */}
+                  <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (selectedSoalIds.length === soalList.length) {
-                          setSelectedSoalIds([]);
-                        } else {
-                          setSelectedSoalIds(soalList.map((s) => s.id));
-                        }
-                      }}
-                      className="text-xs text-blue-600 font-semibold hover:underline cursor-pointer"
+                      onClick={handleSelectOnlyPgAndEssay}
+                      title="Pilih butir soal Pilihan Ganda & Uraian/Essay saja"
+                      className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                     >
-                      {selectedSoalIds.length === soalList.length ? 'Batal Pilih Semua' : 'Pilih Semua Soal'}
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Hanya PG & Essay</span>
                     </button>
-                  )}
+
+                    <button
+                      type="button"
+                      onClick={handleSelectAllMapel}
+                      className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-semibold text-xs transition-colors cursor-pointer"
+                    >
+                      Pilih Semua Soal Mapel Ini
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDeselectAll}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs transition-colors cursor-pointer"
+                    >
+                      Batal Pilih
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Tipe Soal Tabs & Search Input */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                  {/* Tipe Soal Filter Tabs */}
+                  <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setFilterTipeSoal('ALL')}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                        filterTipeSoal === 'ALL'
+                          ? 'bg-slate-800 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Semua ({typeCounts.ALL})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterTipeSoal('PG')}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                        filterTipeSoal === 'PG'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                      }`}
+                    >
+                      PG ({typeCounts.PG})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterTipeSoal('PGK')}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                        filterTipeSoal === 'PGK'
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
+                      }`}
+                    >
+                      PGK ({typeCounts.PGK})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterTipeSoal('MENJODOHKAN')}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                        filterTipeSoal === 'MENJODOHKAN'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                    >
+                      Menjodohkan ({typeCounts.MENJODOHKAN})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilterTipeSoal('URAIAN')}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                        filterTipeSoal === 'URAIAN'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                      }`}
+                    >
+                      Uraian / Essay ({typeCounts.URAIAN})
+                    </button>
+                  </div>
+
+                  {/* Search Box */}
+                  <div className="relative max-w-xs w-full">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Cari butir pertanyaan..."
+                      value={searchQuerySoal}
+                      onChange={(e) => setSearchQuerySoal(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Scope Toggle */}
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showAllMapelSoal}
+                      onChange={(e) => setShowAllMapelSoal(e.target.checked)}
+                      className="w-3.5 h-3.5 text-blue-600 rounded"
+                    />
+                    <span>Tampilkan juga seluruh soal dari mapel lain ({soalList.length} butir)</span>
+                  </label>
+                  <span>Menampilkan {displayedPickerQuestions.length} butir soal</span>
                 </div>
 
                 {/* List of selectable questions */}
@@ -690,17 +961,60 @@ export default function JadwalCBTPage() {
                       <span>Ke Bank Soal & Generate Soal AI</span>
                     </Link>
                   </div>
+                ) : mapelQuestions.length === 0 && !showAllMapelSoal ? (
+                  <div className="p-5 rounded-2xl bg-blue-50/70 border border-blue-200 text-center space-y-2">
+                    <BookOpen className="w-8 h-8 text-blue-600 mx-auto" />
+                    <p className="text-xs font-bold text-slate-900">
+                      Belum ada butir soal spesifik untuk Mata Pelajaran "{mapel}" ({jenjangForm})
+                    </p>
+                    <p className="text-[11px] text-slate-600 max-w-md mx-auto">
+                      Di Bank Soal Anda saat ini terdapat {soalList.length} butir soal dari mata pelajaran lain. Anda dapat membuat soal baru untuk {mapel} atau menampilkan seluruh bank soal.
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                      <Link
+                        href={`/guru/bank-soal?tab=generator`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>+ Buat / Generate Soal {mapel}</span>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setShowAllMapelSoal(true)}
+                        className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-50 cursor-pointer"
+                      >
+                        Tampilkan Seluruh Bank Soal ({soalList.length})
+                      </button>
+                    </div>
+                  </div>
+                ) : displayedPickerQuestions.length === 0 ? (
+                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-1">
+                    <AlertCircle className="w-6 h-6 text-slate-400 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700">Tidak ada butir soal yang cocok</p>
+                    <p className="text-[11px] text-slate-500">
+                      Coba ganti filter tipe soal atau hapus kata kunci pencarian.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="max-h-56 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
-                    {soalList.map((s, idx) => {
+                  <div className="max-h-64 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                    {displayedPickerQuestions.map((s, idx) => {
                       const isSelected = selectedSoalIds.includes(s.id);
+                      const typeBadgeStyle =
+                        s.tipeSoal === 'PG'
+                          ? 'bg-blue-100 text-blue-700 border-blue-200'
+                          : s.tipeSoal === 'PGK'
+                          ? 'bg-purple-100 text-purple-700 border-purple-200'
+                          : s.tipeSoal === 'MENJODOHKAN'
+                          ? 'bg-amber-100 text-amber-800 border-amber-200'
+                          : 'bg-emerald-100 text-emerald-800 border-emerald-200';
+
                       return (
                         <div
                           key={s.id}
                           onClick={() => handleToggleSoal(s.id)}
                           className={`p-3 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3 ${
                             isSelected
-                              ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-300'
+                              ? 'bg-blue-50/90 border-blue-400 ring-1 ring-blue-300 shadow-xs'
                               : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                         >
@@ -708,24 +1022,34 @@ export default function JadwalCBTPage() {
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => {}}
-                            className="w-4 h-4 text-blue-600 rounded mt-0.5 pointer-events-none"
+                            className="w-4 h-4 text-blue-600 rounded mt-0.5 pointer-events-none shrink-0"
                           />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
                               <span className="font-bold text-slate-800">#{idx + 1}</span>
-                              <span className="font-semibold text-blue-700 bg-blue-100/60 px-1.5 py-0.5 rounded text-[10px]">
-                                {s.tipeSoal}
+                              <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] border ${typeBadgeStyle}`}>
+                                {s.tipeSoal === 'PG'
+                                  ? 'Pilihan Ganda'
+                                  : s.tipeSoal === 'PGK'
+                                  ? 'PG Kompleks'
+                                  : s.tipeSoal === 'MENJODOHKAN'
+                                  ? 'Menjodohkan'
+                                  : 'Uraian / Essay'}
                               </span>
-                              <span className="text-slate-500 text-[10px]">{s.mataPelajaran}</span>
+                              <span className="text-slate-600 font-medium text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
+                                {s.mataPelajaran}
+                              </span>
                               {s.topik && (
-                                <span className="text-purple-700 text-[10px] font-medium">({s.topik})</span>
+                                <span className="text-purple-700 text-[10px] font-medium truncate max-w-[200px]">
+                                  ({s.topik})
+                                </span>
                               )}
                             </div>
-                            <p className="text-slate-800 font-medium line-clamp-2">
+                            <p className="text-slate-800 font-medium line-clamp-2 leading-relaxed">
                               {s.pertanyaan}
                             </p>
                           </div>
-                          <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded shrink-0">
+                          <span className="text-[11px] font-bold text-blue-700 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded shrink-0">
                             {s.bobot} Poin
                           </span>
                         </div>
@@ -746,15 +1070,15 @@ export default function JadwalCBTPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={soalList.length === 0}
+                  disabled={selectedSoalIds.length === 0}
                   className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer ${
-                    soalList.length === 0
-                      ? 'bg-slate-300 cursor-not-allowed'
+                    selectedSoalIds.length === 0
+                      ? 'bg-slate-300 cursor-not-allowed text-slate-500'
                       : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
                   }`}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Simpan & Rilis Jadwal Ujian</span>
+                  <span>Simpan & Rilis Jadwal Ujian {selectedSoalIds.length > 0 ? `(${selectedSoalIds.length} Soal)` : ''}</span>
                 </button>
               </div>
             </form>

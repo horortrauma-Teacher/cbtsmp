@@ -1,0 +1,19 @@
+[
+  {
+    "scheduleId": "cbt-1793951116508",
+    "studentId": "test-1A",
+    "studentName": "test",
+    "kelas": "1A",
+    "nisn": "1A",
+    "totalQuestions": 18,
+    "answeredCount": 3,
+    "currentQuestionIndex": 17,
+    "remainingSeconds": 3360,
+    "violationsCount": 2,
+    "isLocked": false,
+    "lockRemainingSeconds": 0,
+    "status": "SELESAI",
+    "lastActive": "2026-11-07T04:01:02.752Z",
+    "forceUnlock": false
+  }
+]

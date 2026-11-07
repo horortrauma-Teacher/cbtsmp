@@ -20,6 +20,7 @@ import {
   User,
   LogOut,
   UserCheck,
+  Radio,
 } from 'lucide-react';
 import { getGuruProfile, logoutGuru, GuruProfile } from '@/lib/guru-auth';
 
@@ -41,6 +42,12 @@ const NAV_ITEMS = [
     href: '/guru/jadwal',
     icon: CalendarClock,
     badge: 'Aktif',
+  },
+  {
+    name: 'Live Monitoring',
+    href: '/guru/monitoring',
+    icon: Radio,
+    badge: 'Live',
   },
   {
     name: 'Hasil & Nilai Siswa',

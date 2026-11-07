@@ -26,7 +26,9 @@ import {
   Wand2,
   Check,
   RotateCcw,
+  Radio,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCBTData } from '@/lib/store';
 import { HasilUjianSiswa, JawabanDetailSiswa } from '@/types/cbt';
 import { autoHealSingleHasil, autoHealHasilList } from '@/lib/auto-heal-results';
@@ -330,13 +332,24 @@ function HasilNilaiContent() {
           </p>
         </div>
 
-        <button
-          onClick={handleExportCSV}
-          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/20 flex items-center gap-2 transition-all hover:scale-[1.02] self-start sm:self-auto"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Export Excel / CSV</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+          <Link
+            href="/guru/monitoring"
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-md flex items-center gap-2 transition-all hover:scale-[1.02]"
+            title="Pantau siswa yang sedang mengerjakan ujian secara live"
+          >
+            <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
+            <span>📡 Live Monitoring Siswa</span>
+          </Link>
+
+          <button
+            onClick={handleExportCSV}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/20 flex items-center gap-2 transition-all hover:scale-[1.02]"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Export Excel / CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* ANALYTICS SUMMARY BANNER */}

@@ -2,6 +2,226 @@
   "soalList": [],
   "stimulusList": [],
   "jadwalList": [],
-  "hasilList": [],
-  "lastUpdated": "2026-11-05T03:39:00.000Z"
+  "hasilList": [
+    {
+      "id": "hasil-1794024062714",
+      "jadwalId": "cbt-1793951116508",
+      "namaSiswa": "test",
+      "nisn": "1A",
+      "kelas": "1A",
+      "waktuMulai": "7/11/2026, 11.12.02",
+      "waktuSubmit": "7/11/2026, 11.01.02",
+      "durasiPengerjaan": "-11 Menit 0 Detik",
+      "nilaiAkhir": 5,
+      "statusKelulusan": "BELUM_TUNTAS",
+      "breakdown": {
+        "pg": 10,
+        "pgk": 0,
+        "menjodohkan": 0,
+        "uraian": 0,
+        "hotsMasteryRate": 100
+      },
+      "jawabanDetail": [
+        {
+          "soalId": "soal-gemini-1793950712730",
+          "tipeSoal": "PG",
+          "pertanyaan": "Apa yang dimaksud dengan 'sistem komputer' berdasarkan definisi di atas?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[D] Gabungan perangkat keras dan perangkat lunak yang bekerja sama menjalankan aplikasi.",
+          "jawabanSiswa": "[D] Gabungan perangkat keras dan perangkat lunak yang bekerja sama menjalankan aplikasi.",
+          "isBenar": true,
+          "nilaiDiperoleh": 10
+        },
+        {
+          "soalId": "soal-gemini-1793950712572",
+          "tipeSoal": "PG",
+          "pertanyaan": "Manakah dari berikut ini yang merupakan contoh perangkat keras yang berfungsi sebagai media penyimpanan data dalam sistem komputer?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Hard Disk Drive (HDD) atau Solid State Drive (SSD).",
+          "jawabanSiswa": "[D] Monitor dan Printer.",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793936663931",
+          "tipeSoal": "MENJODOHKAN",
+          "pertanyaan": "Jodohkan fungsi sistem operasi berikut dengan deskripsi kegiatannya yang tepat.",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "Manajemen Memori -> Mengatur alokasi penggunaan RAM untuk aplikasi; Penjadwalan Proses -> Mengatur giliran pemrosesan data oleh CPU; Manajemen Perangkat I/O -> Mengatur komunikasi antara perangkat keras masukan dan keluaran",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793936664010",
+          "tipeSoal": "URAIAN",
+          "pertanyaan": "Jelaskan perbedaan mendasar antara perangkat keras (hardware) dan perangkat lunak (software) dalam sebuah sistem komputer serta berikan masing-masing satu contohnya.",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "Perangkat keras adalah komponen fisik yang dapat disentuh (contoh: CPU, RAM), sedangkan perangkat lunak adalah sekumpulan instruksi atau program yang memproses data (contoh: Windows, Android).",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950263989",
+          "tipeSoal": "PG",
+          "pertanyaan": "Manakah pernyataan berikut yang paling tepat mendefinisikan fungsi utama dari aplikasi pengolah kata dalam Teknologi Informasi dan Komunikasi?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Membuat, menyunting, dan memformat dokumen berbasis teks",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950264305",
+          "tipeSoal": "PG",
+          "pertanyaan": "Manakah di bawah ini yang merupakan contoh penerapan TIK dalam lingkungan sekolah?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Menyusun laporan praktikum menggunakan Microsoft Word",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950264147",
+          "tipeSoal": "PG",
+          "pertanyaan": "Ikon manakah pada grup 'Font' di Microsoft Word yang digunakan Deni untuk menebalkan teks?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[A] Ikon B (Bold)",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793936664247",
+          "tipeSoal": "MENJODOHKAN",
+          "pertanyaan": "Jodohkan istilah berikut dengan definisi yang tepat.",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "Pemrosesan -> Operasi aritmetika atau logika pada data; Penyimpanan -> Kemampuan menyimpan program dan data; Input -> Data yang dimasukkan ke dalam sistem",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950264068",
+          "tipeSoal": "PG",
+          "pertanyaan": "Langkah awal yang paling tepat dilakukan Siti untuk menyimpan dokumen baru tersebut untuk pertama kalinya adalah...",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Klik tab File lalu pilih Save As",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793936663852",
+          "tipeSoal": "PGK",
+          "pertanyaan": "Manakah pernyataan berikut yang benar mengenai komponen sistem informasi? (Pilih dua jawaban benar)",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[V] Manusia (orang) merupakan salah satu komponen vital dalam sistem informasi.; [V] Sistem informasi dirancang untuk mendukung pengambilan keputusan dalam organisasi.",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950264542",
+          "tipeSoal": "PG",
+          "pertanyaan": "Apa yang harus dilakukan Budi untuk membatalkan tindakan penghapusan tersebut?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[A] Menekan tombol Ctrl + Z",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950264463",
+          "tipeSoal": "PG",
+          "pertanyaan": "Perintah apa yang paling efektif digunakan Andi untuk menduplikasi teks tersebut?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Copy dan Paste",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793936664089",
+          "tipeSoal": "PG",
+          "pertanyaan": "Mengapa manusia (brainware) dikategorikan sebagai komponen penting dalam sistem informasi?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Karena manusia yang menafsirkan informasi untuk pengambilan keputusan.",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950560748",
+          "tipeSoal": "PG",
+          "pertanyaan": "Berdasarkan ilustrasi di atas, manakah peran utama sistem operasi dalam sistem komputer tersebut?",
+          "isHots": false,
+          "bobot": 20,
+          "kunciJawaban": "[A] Mengatur sumber daya perangkat keras dan perangkat lunak agar aplikasi dapat berjalan.",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950560985",
+          "tipeSoal": "PG",
+          "pertanyaan": "Manakah di bawah ini yang merupakan contoh perangkat keras (hardware) yang berfungsi sebagai unit pemroses dalam sistem komputer?",
+          "isHots": false,
+          "bobot": 20,
+          "kunciJawaban": "[C] Central Processing Unit (CPU).",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793936663773",
+          "tipeSoal": "PG",
+          "pertanyaan": "Berdasarkan data tersebut, manakah pernyataan yang paling tepat mengenai peran sistem operasi bagi pengguna?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[B] Sistem operasi berfungsi sebagai perantara antara program aplikasi dan perangkat keras komputer.",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950561064",
+          "tipeSoal": "PG",
+          "pertanyaan": "Apa yang terjadi jika sebuah komputer tidak memiliki sistem operasi sama sekali?",
+          "isHots": false,
+          "bobot": 20,
+          "kunciJawaban": "[B] Pengguna tidak dapat menjalankan aplikasi pada komputer tersebut.",
+          "jawabanSiswa": "-",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        },
+        {
+          "soalId": "soal-gemini-1793950712493",
+          "tipeSoal": "PG",
+          "pertanyaan": "Dalam konteks sistem informasi di atas, siapakah yang dikategorikan sebagai komponen 'brainware'?",
+          "isHots": false,
+          "bobot": 10,
+          "kunciJawaban": "[C] Administrator atau guru yang mengoperasikan sistem.",
+          "jawabanSiswa": "[D] Data nilai siswa yang tersimpan di dalam database.",
+          "isBenar": false,
+          "nilaiDiperoleh": 0
+        }
+      ]
+    }
+  ],
+  "lastUpdated": "2026-11-07T04:01:02.742Z"
 }

@@ -21,7 +21,8 @@ import {
   BookOpen,
   ArrowRight,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
 import { LiveStudentProgress, JadwalUjian } from '@/types/cbt';
@@ -206,6 +207,44 @@ function LiveMonitoringContent() {
       }
     } catch (e) {
       alert('Terjadi kesalahan saat membuka kunci.');
+    }
+  };
+
+  // Action: Delete testing / accidental student session from monitoring
+  const handleDeleteMonitoringStudent = async (student: LiveStudentProgress) => {
+    if (!confirm(`Hapus sesi siswa testing "${student.studentName}" (Kelas ${student.kelas}) dari live monitoring?`)) {
+      return;
+    }
+
+    try {
+      // 1. Remove from localStorage immediately
+      if (typeof window !== 'undefined') {
+        const localKey = `cbt_live_progress_${student.scheduleId}`;
+        const raw = localStorage.getItem(localKey);
+        if (raw) {
+          const map = JSON.parse(raw);
+          delete map[student.studentId];
+          localStorage.setItem(localKey, JSON.stringify(map));
+        }
+        window.dispatchEvent(new Event('cbt_progress_updated'));
+      }
+
+      // 2. Remove from API
+      await fetch('/api/cbt/exam/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          scheduleId: student.scheduleId,
+          studentId: student.studentId,
+        }),
+      });
+
+      setUnlockNotice(`Siswa testing "${student.studentName}" berhasil dihapus dari live monitoring.`);
+      setTimeout(() => setUnlockNotice(null), 3000);
+      fetchProgress();
+    } catch (e) {
+      alert('Gagal menghapus siswa dari monitoring.');
     }
   };
 
@@ -706,27 +745,39 @@ function LiveMonitoringContent() {
 
                       {/* Action */}
                       <td className="py-3.5 px-4 text-right">
-                        {isPenalized ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isPenalized && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoteUnlock(s)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                              title="Buka kunci penalti siswa sebelum 2 menit berakhir"
+                            >
+                              <Unlock className="w-3 h-3" />
+                              <span>Buka Kunci</span>
+                            </button>
+                          )}
+
+                          {isSubmitted && (
+                            <Link
+                              href={`/guru/hasil?jadwalId=${s.scheduleId}`}
+                              className="text-indigo-600 hover:underline font-semibold text-[11px] inline-flex items-center gap-0.5 shrink-0"
+                            >
+                              <span>Lihat Skor</span>
+                              <ChevronRight className="w-3 h-3" />
+                            </Link>
+                          )}
+
+                          {/* Delete testing / wrong user */}
                           <button
                             type="button"
-                            onClick={() => handleRemoteUnlock(s)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs flex items-center gap-1 ml-auto cursor-pointer transition-colors"
-                            title="Buka kunci penalti siswa sebelum 2 menit berakhir"
+                            onClick={() => handleDeleteMonitoringStudent(s)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors cursor-pointer shrink-0"
+                            title={`Hapus siswa testing "${s.studentName}" dari monitoring`}
                           >
-                            <Unlock className="w-3 h-3" />
-                            <span>Buka Kunci</span>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        ) : isSubmitted ? (
-                          <Link
-                            href={`/guru/hasil?jadwalId=${s.scheduleId}`}
-                            className="text-indigo-600 hover:underline font-semibold text-[11px] inline-flex items-center gap-0.5"
-                          >
-                            <span>Lihat Skor</span>
-                            <ChevronRight className="w-3 h-3" />
-                          </Link>
-                        ) : (
-                          <span className="text-slate-400 text-[10px] italic">Mengawasi</span>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );

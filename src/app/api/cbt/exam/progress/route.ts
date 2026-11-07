@@ -142,6 +142,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if this is a delete action triggered by teacher (to clear test users)
+    if (body.action === 'delete') {
+      const { scheduleId, studentId } = body;
+      if (!scheduleId || !studentId) {
+        return NextResponse.json(
+          { success: false, message: 'scheduleId dan studentId diperlukan untuk menghapus.' },
+          { status: 400 }
+        );
+      }
+
+      const map = getProgressMap();
+      const key = `${scheduleId}:::${studentId}`;
+      map.delete(key);
+      persistProgress();
+
+      return NextResponse.json({
+        success: true,
+        message: 'Data siswa testing / salah masuk berhasil dihapus dari live monitoring.',
+      });
+    }
+
     // Normal heartbeat update from student exam portal
     const {
       scheduleId,

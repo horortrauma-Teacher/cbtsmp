@@ -76,6 +76,16 @@ export function writeServerStore(store: CBTServerStore): void {
   }
 }
 
+export function deleteHasilFromServerStore(id: string): void {
+  const current = readServerStore();
+  const updatedStore: CBTServerStore = {
+    ...current,
+    hasilList: current.hasilList.filter((h) => h.id !== id),
+    lastUpdated: new Date().toISOString(),
+  };
+  writeServerStore(updatedStore);
+}
+
 /**
  * Merges incoming items by ID with existing server items, preserving uniqueness
  */

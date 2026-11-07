@@ -27,6 +27,7 @@ import {
   Check,
   RotateCcw,
   Radio,
+  Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useCBTData } from '@/lib/store';
@@ -37,7 +38,7 @@ function HasilNilaiContent() {
   const searchParams = useSearchParams();
   const initialJadwalId = searchParams.get('jadwalId') || 'ALL';
 
-  const { hasilList, allHasilList, jadwalList, allJadwalList, addHasilUjian } = useCBTData();
+  const { hasilList, allHasilList, jadwalList, allJadwalList, addHasilUjian, deleteHasil } = useCBTData();
   const [scopeFilter, setScopeFilter] = useState<'mine' | 'all'>('mine');
   const activeHasilSource = scopeFilter === 'mine' ? hasilList : allHasilList;
   const activeJadwalSource = scopeFilter === 'mine' ? jadwalList : allJadwalList;
@@ -316,6 +317,28 @@ function HasilNilaiContent() {
     setInspectedStudent(editingStudentHasil);
     setSaveSuccessMsg('✅ Sukses! Perubahan nilai dan koreksi jawaban berhasil disimpan ke sistem CBT.');
     setTimeout(() => setSaveSuccessMsg(null), 4000);
+  };
+
+  const handleDeleteHasil = (item: HasilUjianSiswa) => {
+    if (
+      !confirm(
+        `Hapus rekaman ujian siswa "${item.namaSiswa}" (Kelas ${item.kelas})?\n\n` +
+        `Data perolehan nilai dan lembar jawaban ini akan dihapus dari sistem CBT (berguna untuk membersihkan data testing atau siswa yang salah masuk).`
+      )
+    ) {
+      return;
+    }
+
+    deleteHasil(item.id);
+
+    // If modal is currently open for this student, close it
+    if (inspectedStudent?.id === item.id) {
+      setInspectedStudent(null);
+      setEditingStudentHasil(null);
+    }
+
+    setSaveSuccessMsg(`🗑️ Rekaman ujian siswa "${item.namaSiswa}" berhasil dihapus.`);
+    setTimeout(() => setSaveSuccessMsg(null), 3500);
   };
 
   return (
@@ -637,13 +660,26 @@ function HasilNilaiContent() {
 
                       {/* Action */}
                       <td className="px-4 py-3.5 text-right">
-                        <button
-                          onClick={() => handleOpenLembarJawaban(item)}
-                          className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs transition-colors flex items-center gap-1.5 ml-auto cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Lembar Jawaban</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenLembarJawaban(item)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+                            title="Buka dan periksa lembar jawaban siswa"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Lembar Jawaban</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteHasil(item)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors cursor-pointer shrink-0"
+                            title={`Hapus rekaman ujian ${item.namaSiswa} (user salah masuk / testing)`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -892,7 +928,17 @@ function HasilNilaiContent() {
               <span className="text-xs text-slate-500 text-center sm:text-left">
                 Setelah mengoreksi atau mengubah poin, pastikan Anda menekan tombol <b>Simpan Perubahan Nilai</b>.
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteHasil(editingStudentHasil)}
+                  className="px-4 py-2.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  title="Hapus rekaman ujian siswa ini (user salah masuk / testing)"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Hapus Rekaman Siswa</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleSaveEditedHasil}

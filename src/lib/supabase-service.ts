@@ -770,3 +770,12 @@ export async function saveHasilToDb(hasil: HasilUjianSiswa): Promise<boolean> {
     return false;
   }
 }
+
+export async function deleteHasilFromDb(id: string): Promise<boolean> {
+  try {
+    const { error } = await db.from('hasil_ujian').delete().eq('id', id);
+    return !error;
+  } catch {
+    return false;
+  }
+}

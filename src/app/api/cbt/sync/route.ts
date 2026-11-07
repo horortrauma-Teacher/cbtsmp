@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readServerStore, mergeAndPersist } from '@/lib/server-storage';
-import { fetchStimulusFromDb, fetchSoalFromDb, fetchJadwalFromDb, fetchHasilFromDb } from '@/lib/supabase-service';
+import { readServerStore, mergeAndPersist, deleteHasilFromServerStore } from '@/lib/server-storage';
+import { fetchStimulusFromDb, fetchSoalFromDb, fetchJadwalFromDb, fetchHasilFromDb, deleteHasilFromDb } from '@/lib/supabase-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +99,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // Handle delete action
+    if (body.action === 'delete' && body.type === 'hasil' && body.id) {
+      deleteHasilFromServerStore(body.id);
+      deleteHasilFromDb(body.id).catch(() => {});
+      return NextResponse.json({
+        success: true,
+        message: 'Hasil ujian berhasil dihapus.',
+      });
+    }
+
     const { soalList, stimulusList, jadwalList, hasilList, guruUsername } = body;
 
     const merged = await mergeAndPersist({

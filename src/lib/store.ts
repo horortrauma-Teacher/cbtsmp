@@ -11,6 +11,7 @@ import {
   saveJadwalToDb,
   deleteJadwalFromDb,
   saveHasilToDb,
+  deleteHasilFromDb,
 } from './supabase-service';
 import { autoHealHasilList } from './auto-heal-results';
 
@@ -320,6 +321,27 @@ export function useCBTData() {
     }).catch(() => {});
   };
 
+  const deleteHasil = (id: string) => {
+    setRawHasilList((prev) => {
+      const updated = prev.filter((h) => h.id !== id);
+      try {
+        localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify(updated));
+        localStorage.setItem('cbt_hasil_list', JSON.stringify(updated));
+      } catch (e) {
+        // ignore
+      }
+      return updated;
+    });
+
+    deleteHasilFromDb(id).catch(() => {});
+
+    fetch('/api/cbt/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', type: 'hasil', id }),
+    }).catch(() => {});
+  };
+
   return {
     soalList,
     allSoalList: rawSoalList,
@@ -338,6 +360,7 @@ export function useCBTData() {
     updateJadwalStatus,
     deleteJadwal,
     addHasilUjian,
+    deleteHasil,
     activeGuru,
   };
 }

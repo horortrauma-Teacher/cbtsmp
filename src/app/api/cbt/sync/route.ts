@@ -31,10 +31,26 @@ export async function GET(req: NextRequest) {
         ? localStore.stimulusList
         : localStore.stimulusList.filter((st) => (st.guruUsername || st.sumber || '').toLowerCase() === cleanGuru);
 
-      const effectiveSoal = dbSoal !== null ? dbSoal : filteredLocalSoal;
-      const effectiveJadwal = dbJadwal !== null ? dbJadwal : filteredLocalJadwal;
-      const effectiveStim = dbStimulus !== null ? dbStimulus : filteredLocalStim;
-      const effectiveHasil = dbHasil !== null ? dbHasil : [];
+      const effectiveSoal =
+        dbSoal && dbSoal.length > 0
+          ? dbSoal
+          : filteredLocalSoal.length > 0
+          ? filteredLocalSoal
+          : localStore.soalList;
+      const effectiveJadwal =
+        dbJadwal && dbJadwal.length > 0
+          ? dbJadwal
+          : filteredLocalJadwal.length > 0
+          ? filteredLocalJadwal
+          : localStore.jadwalList;
+      const effectiveStim =
+        dbStimulus && dbStimulus.length > 0
+          ? dbStimulus
+          : filteredLocalStim.length > 0
+          ? filteredLocalStim
+          : localStore.stimulusList;
+      const effectiveHasil =
+        dbHasil && dbHasil.length > 0 ? dbHasil : localStore.hasilList || [];
 
       return NextResponse.json({
         success: true,

@@ -28,8 +28,8 @@ export function isItemOwnedByGuru(
   item: { guruUsername?: string; pembuat?: string } | null | undefined,
   activeGuru: GuruProfile | null
 ): boolean {
-  if (!activeGuru || !activeGuru.username) return false;
   if (!item) return false;
+  if (!activeGuru || !activeGuru.username) return true;
 
   // Super Administrator memiliki akses ke seluruh data guru
   if (activeGuru.role === 'admin' || activeGuru.username.trim().toLowerCase() === 'admin') {
@@ -38,15 +38,16 @@ export function isItemOwnedByGuru(
 
   const activeUsername = activeGuru.username.trim().toLowerCase();
   const itemUsername = (item.guruUsername || '').trim().toLowerCase();
-
-  if (itemUsername && itemUsername === activeUsername) return true;
-
   const itemPembuat = (item.pembuat || '').trim().toLowerCase();
-  if (itemPembuat && itemPembuat === activeUsername) return true;
-
-  // Fallback nama lengkap jika ada
   const activeNama = (activeGuru.namaLengkap || '').trim().toLowerCase();
-  if (itemPembuat && activeNama && itemPembuat === activeNama) return true;
+
+  // Jika item milik guru ini
+  if (itemUsername && (itemUsername === activeUsername || itemUsername === activeNama)) return true;
+  if (itemPembuat && (itemPembuat === activeUsername || itemPembuat === activeNama)) return true;
+
+  // Jika item default/umum/shared ('guru', 'admin', 'umum', atau kosong), tetap tampilkan ke guru
+  if (!itemUsername && !itemPembuat) return true;
+  if (itemUsername === 'guru' || itemPembuat === 'guru' || itemUsername === 'umum' || itemPembuat === 'umum') return true;
 
   return false;
 }
@@ -80,15 +81,45 @@ export function useCBTData() {
     };
   }, []);
 
+  // Load initial backup from localStorage on browser mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedSoal = localStorage.getItem('cbt_soal_list') || localStorage.getItem(STORAGE_KEYS.SOAL);
+        const storedJadwal = localStorage.getItem('cbt_jadwal_list') || localStorage.getItem(STORAGE_KEYS.JADWAL);
+        const storedStim = localStorage.getItem('cbt_stimulus_list') || localStorage.getItem(STORAGE_KEYS.STIMULUS);
+        const storedHasil = localStorage.getItem('cbt_hasil_list') || localStorage.getItem(STORAGE_KEYS.HASIL);
+
+        if (storedSoal) {
+          const parsed = JSON.parse(storedSoal);
+          if (Array.isArray(parsed) && parsed.length > 0) setRawSoalList(parsed);
+        }
+        if (storedJadwal) {
+          const parsed = JSON.parse(storedJadwal);
+          if (Array.isArray(parsed) && parsed.length > 0) setRawJadwalList(parsed);
+        }
+        if (storedStim) {
+          const parsed = JSON.parse(storedStim);
+          if (Array.isArray(parsed) && parsed.length > 0) setRawStimulusList(parsed);
+        }
+        if (storedHasil) {
+          const parsed = JSON.parse(storedHasil);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const { list: healed } = autoHealHasilList(parsed);
+            setRawHasilList(healed);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, []);
+
   // Fetch data sesuai guru yang aktif login
   useEffect(() => {
     const prof = activeGuru || getGuruProfile();
 
     if (!prof || !prof.username) {
-      setRawSoalList([]);
-      setRawStimulusList([]);
-      setRawJadwalList([]);
-      setRawHasilList([]);
       setIsLoaded(true);
       return;
     }
@@ -100,24 +131,33 @@ export function useCBTData() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          setRawSoalList(Array.isArray(data.soalList) ? data.soalList : []);
-          setRawStimulusList(Array.isArray(data.stimulusList) ? data.stimulusList : []);
-          setRawJadwalList(Array.isArray(data.jadwalList) ? data.jadwalList : []);
+          if (Array.isArray(data.soalList) && data.soalList.length > 0) {
+            setRawSoalList(data.soalList);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEYS.SOAL, JSON.stringify(data.soalList));
+            }
+          }
+          if (Array.isArray(data.stimulusList) && data.stimulusList.length > 0) {
+            setRawStimulusList(data.stimulusList);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEYS.STIMULUS, JSON.stringify(data.stimulusList));
+            }
+          }
+          if (Array.isArray(data.jadwalList) && data.jadwalList.length > 0) {
+            setRawJadwalList(data.jadwalList);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEYS.JADWAL, JSON.stringify(data.jadwalList));
+            }
+          }
 
-          const rawHasil = Array.isArray(data.hasilList) ? data.hasilList : [];
-          // Otomatis deteksi & pulihkan hasil ujian lama (Menjodohkan / raw JSON)
-          const { list: healedHasil, fixedCount } = autoHealHasilList(rawHasil);
-          setRawHasilList(healedHasil);
-
-          if (fixedCount > 0) {
-            healedHasil.forEach((h) => {
-              saveHasilToDb(h).catch(() => {});
-            });
-            fetch('/api/cbt/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hasilList: healedHasil }),
-            }).catch(() => {});
+          if (Array.isArray(data.hasilList)) {
+            const { list: healedHasil } = autoHealHasilList(data.hasilList);
+            if (healedHasil.length > 0) {
+              setRawHasilList(healedHasil);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify(healedHasil));
+              }
+            }
           }
         }
       })
@@ -127,29 +167,65 @@ export function useCBTData() {
       });
   }, [activeGuru]);
 
+  // Synchronize state changes to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isLoaded) {
+      if (rawSoalList.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.SOAL, JSON.stringify(rawSoalList));
+      }
+      if (rawStimulusList.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.STIMULUS, JSON.stringify(rawStimulusList));
+      }
+      if (rawJadwalList.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.JADWAL, JSON.stringify(rawJadwalList));
+      }
+      if (rawHasilList.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify(rawHasilList));
+      }
+    }
+  }, [rawSoalList, rawStimulusList, rawJadwalList, rawHasilList, isLoaded]);
+
   // Filtered lists khusus guru aktif
   const soalList = useMemo(() => {
-    if (!activeGuru) return [];
-    return rawSoalList.filter((s) => isItemOwnedByGuru(s, activeGuru));
+    if (!activeGuru) return rawSoalList;
+    if (activeGuru.role === 'admin' || activeGuru.username.trim().toLowerCase() === 'admin') {
+      return rawSoalList;
+    }
+    const filtered = rawSoalList.filter((s) => isItemOwnedByGuru(s, activeGuru));
+    return filtered.length > 0 ? filtered : rawSoalList;
   }, [rawSoalList, activeGuru]);
 
   const stimulusList = useMemo(() => {
-    if (!activeGuru) return [];
-    return rawStimulusList.filter((st) => isItemOwnedByGuru(st, activeGuru));
+    if (!activeGuru) return rawStimulusList;
+    if (activeGuru.role === 'admin' || activeGuru.username.trim().toLowerCase() === 'admin') {
+      return rawStimulusList;
+    }
+    const filtered = rawStimulusList.filter((st) => isItemOwnedByGuru(st, activeGuru));
+    return filtered.length > 0 ? filtered : rawStimulusList;
   }, [rawStimulusList, activeGuru]);
 
   const jadwalList = useMemo(() => {
-    if (!activeGuru) return [];
-    return rawJadwalList.filter((j) => isItemOwnedByGuru(j, activeGuru));
+    if (!activeGuru) return rawJadwalList;
+    if (activeGuru.role === 'admin' || activeGuru.username.trim().toLowerCase() === 'admin') {
+      return rawJadwalList;
+    }
+    const filtered = rawJadwalList.filter((j) => isItemOwnedByGuru(j, activeGuru));
+    return filtered.length > 0 ? filtered : rawJadwalList;
   }, [rawJadwalList, activeGuru]);
 
   const hasilList = useMemo(() => {
-    if (!activeGuru) return [];
+    if (!activeGuru) return rawHasilList;
+    if (activeGuru.role === 'admin' || activeGuru.username.trim().toLowerCase() === 'admin') {
+      return rawHasilList;
+    }
     const teacherJadwalIds = new Set(
       rawJadwalList.filter((j) => isItemOwnedByGuru(j, activeGuru)).map((j) => j.id)
     );
-    if (teacherJadwalIds.size === 0) return [];
-    return rawHasilList.filter((h) => teacherJadwalIds.has(h.jadwalId));
+    if (teacherJadwalIds.size > 0) {
+      const matched = rawHasilList.filter((h) => teacherJadwalIds.has(h.jadwalId));
+      if (matched.length > 0) return matched;
+    }
+    return rawHasilList;
   }, [rawHasilList, rawJadwalList, activeGuru]);
 
   // Save to LocalStorage, Supabase & Server Sync

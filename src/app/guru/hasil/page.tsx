@@ -52,9 +52,12 @@ function HasilNilaiContent() {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState<boolean>(true);
 
-  // Filtered List
+  // Active Schedule Details (if selected)
+  const currentJadwal = activeJadwalSource.find((j) => j.id === selectedJadwalId);
+
+  // Filtered List with automatic on-the-fly healing
   const filteredHasil = useMemo(() => {
-    return activeHasilSource.filter((item) => {
+    const rawList = activeHasilSource.filter((item) => {
       const matchJadwal = selectedJadwalId === 'ALL' || item.jadwalId === selectedJadwalId;
       const matchQuery =
         item.namaSiswa.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -64,7 +67,10 @@ function HasilNilaiContent() {
 
       return matchJadwal && matchQuery && matchKelas && matchStatus;
     });
-  }, [activeHasilSource, selectedJadwalId, searchQuery, selectedKelas, selectedStatus]);
+
+    const { list: healedList } = autoHealHasilList(rawList, currentJadwal?.kkm || 75);
+    return healedList;
+  }, [activeHasilSource, selectedJadwalId, searchQuery, selectedKelas, selectedStatus, currentJadwal]);
 
   // Analytics Computations
   const totalCount = filteredHasil.length;
@@ -76,9 +82,6 @@ function HasilNilaiContent() {
 
   const tuntasCount = filteredHasil.filter((h) => h.statusKelulusan === 'TUNTAS').length;
   const tuntasPercentage = totalCount > 0 ? Math.round((tuntasCount / totalCount) * 100) : 0;
-
-  // Active Schedule Details (if selected)
-  const currentJadwal = activeJadwalSource.find((j) => j.id === selectedJadwalId);
 
   // Export to CSV Function
   const handleExportCSV = () => {
@@ -134,23 +137,6 @@ function HasilNilaiContent() {
     link.click();
     document.body.removeChild(link);
   };
-
-  // =========================================================================
-  // OTOMATIS MEMULIHKAN SEMUA HASIL SISWA (AUTO-HEAL MENJODOHKAN & RAW JSON)
-  // =========================================================================
-  useEffect(() => {
-    if (activeHasilSource && activeHasilSource.length > 0) {
-      const { list: healedList, fixedCount } = autoHealHasilList(
-        activeHasilSource,
-        currentJadwal?.kkm || 75
-      );
-      if (fixedCount > 0) {
-        healedList.forEach((h) => {
-          addHasilUjian(h);
-        });
-      }
-    }
-  }, [activeHasilSource, currentJadwal, addHasilUjian]);
 
   // =========================================================================
   // HELPER & ACTIONS FOR INSPECTING & EDITING STUDENT SCORES (KOREKSI MANUAL)

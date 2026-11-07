@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   GraduationCap,
@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
 import { HasilUjianSiswa, JawabanDetailSiswa } from '@/types/cbt';
+import { autoHealSingleHasil, autoHealHasilList } from '@/lib/auto-heal-results';
 
 function HasilNilaiContent() {
   const searchParams = useSearchParams();
@@ -135,12 +136,38 @@ function HasilNilaiContent() {
   };
 
   // =========================================================================
+  // OTOMATIS MEMULIHKAN SEMUA HASIL SISWA (AUTO-HEAL MENJODOHKAN & RAW JSON)
+  // =========================================================================
+  useEffect(() => {
+    if (activeHasilSource && activeHasilSource.length > 0) {
+      const { list: healedList, fixedCount } = autoHealHasilList(
+        activeHasilSource,
+        currentJadwal?.kkm || 75
+      );
+      if (fixedCount > 0) {
+        healedList.forEach((h) => {
+          addHasilUjian(h);
+        });
+      }
+    }
+  }, [activeHasilSource, currentJadwal, addHasilUjian]);
+
+  // =========================================================================
   // HELPER & ACTIONS FOR INSPECTING & EDITING STUDENT SCORES (KOREKSI MANUAL)
   // =========================================================================
   const handleOpenLembarJawaban = (item: HasilUjianSiswa) => {
-    setInspectedStudent(item);
-    setEditingStudentHasil(JSON.parse(JSON.stringify(item)));
-    setSaveSuccessMsg(null);
+    // Otomatis deteksi & perbaiki butir menjodohkan saat modal lembar jawaban dibuka
+    const { healed, wasFixed } = autoHealSingleHasil(item, currentJadwal?.kkm || 75);
+    setInspectedStudent(healed);
+    setEditingStudentHasil(JSON.parse(JSON.stringify(healed)));
+    if (wasFixed) {
+      addHasilUjian(healed);
+      setSaveSuccessMsg(
+        '⚡ Sistem CBT otomatis memulihkan nilai soal Menjodohkan menjadi BENAR (100%)!'
+      );
+    } else {
+      setSaveSuccessMsg(null);
+    }
   };
 
   const recalculateHasilScores = (h: HasilUjianSiswa): HasilUjianSiswa => {

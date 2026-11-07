@@ -12,6 +12,7 @@ import {
   deleteJadwalFromDb,
   saveHasilToDb,
 } from './supabase-service';
+import { autoHealHasilList } from './auto-heal-results';
 
 const STORAGE_KEYS = {
   SOAL: 'cbt_guru_soal_v3',
@@ -102,7 +103,22 @@ export function useCBTData() {
           setRawSoalList(Array.isArray(data.soalList) ? data.soalList : []);
           setRawStimulusList(Array.isArray(data.stimulusList) ? data.stimulusList : []);
           setRawJadwalList(Array.isArray(data.jadwalList) ? data.jadwalList : []);
-          setRawHasilList(Array.isArray(data.hasilList) ? data.hasilList : []);
+
+          const rawHasil = Array.isArray(data.hasilList) ? data.hasilList : [];
+          // Otomatis deteksi & pulihkan hasil ujian lama (Menjodohkan / raw JSON)
+          const { list: healedHasil, fixedCount } = autoHealHasilList(rawHasil);
+          setRawHasilList(healedHasil);
+
+          if (fixedCount > 0) {
+            healedHasil.forEach((h) => {
+              saveHasilToDb(h).catch(() => {});
+            });
+            fetch('/api/cbt/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hasilList: healedHasil }),
+            }).catch(() => {});
+          }
         }
       })
       .catch(() => {})

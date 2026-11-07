@@ -376,21 +376,83 @@ export default function StudentExamPage() {
       let kunciStr = "";
 
       if (q.tipeSoal === "PG") {
-        studentAnsStr = ans?.pg || "-";
-        kunciStr = q.kunciPG || "";
-        if (ans?.pg && q.kunciPG && ans.pg === q.kunciPG) {
+        const studentAns = ans?.pg;
+        const correctKey = q.kunciPG;
+
+        const chosenOpt = (q.opsiPG || []).find(
+          (o) =>
+            o.id === studentAns ||
+            o.label.toUpperCase() === (studentAns || "").toUpperCase() ||
+            o.teks === studentAns
+        );
+        const correctOpt = (q.opsiPG || []).find(
+          (o) =>
+            o.id === correctKey ||
+            o.label.toUpperCase() === (correctKey || "").toUpperCase() ||
+            o.teks === correctKey
+        );
+
+        if (chosenOpt) {
+          studentAnsStr = `[${chosenOpt.label}] ${chosenOpt.teks}`;
+        } else {
+          studentAnsStr = studentAns || "-";
+        }
+
+        if (correctOpt) {
+          kunciStr = `[${correctOpt.label}] ${correctOpt.teks}`;
+        } else {
+          kunciStr = correctKey || "-";
+        }
+
+        const isMatch = Boolean(
+          studentAns &&
+            correctKey &&
+            (studentAns.trim().toLowerCase() === correctKey.trim().toLowerCase() ||
+              (chosenOpt && correctOpt && chosenOpt.id === correctOpt.id) ||
+              (chosenOpt &&
+                (chosenOpt.label.toUpperCase() === correctKey.trim().toUpperCase() ||
+                  chosenOpt.id === correctKey)) ||
+              (correctOpt &&
+                (correctOpt.label.toUpperCase() === studentAns.trim().toUpperCase() ||
+                  correctOpt.id === studentAns)))
+        );
+
+        if (isMatch) {
           isBenar = true;
           earned = qBobot;
           pgPoints += qBobot;
           correctCount++;
         }
       } else if (q.tipeSoal === "PGK") {
-        const correctKeys = (q.opsiPGK || []).filter((o) => o.isKunci).map((o) => o.id);
+        const opsiList = q.opsiPGK || [];
+        const correctKeys = opsiList.filter((o) => o.isKunci).map((o) => o.id);
         const studentSelected = ans?.pgk || [];
-        studentAnsStr = studentSelected.join(", ") || "-";
-        kunciStr = correctKeys.join(", ");
-        const matches = studentSelected.filter((k) => correctKeys.includes(k)).length;
-        const mistakes = studentSelected.filter((k) => !correctKeys.includes(k)).length;
+
+        const selectedTexts = opsiList
+          .filter((o) => studentSelected.includes(o.id) || studentSelected.includes(o.teks))
+          .map((o) => `[V] ${o.teks}`);
+        const correctTexts = opsiList
+          .filter((o) => o.isKunci)
+          .map((o) => `[V] ${o.teks}`);
+
+        studentAnsStr =
+          selectedTexts.length > 0
+            ? selectedTexts.join("; ")
+            : studentSelected.join(", ") || "-";
+        kunciStr =
+          correctTexts.length > 0 ? correctTexts.join("; ") : correctKeys.join(", ");
+
+        const matches = studentSelected.filter(
+          (k) =>
+            correctKeys.includes(k) ||
+            opsiList.some((o) => o.isKunci && (o.teks === k || o.id === k))
+        ).length;
+        const mistakes = studentSelected.filter(
+          (k) =>
+            !correctKeys.includes(k) &&
+            !opsiList.some((o) => o.isKunci && (o.teks === k || o.id === k))
+        ).length;
+
         if (matches > 0 && mistakes === 0) {
           earned = Math.round((matches / (correctKeys.length || 1)) * qBobot);
           isBenar = matches === correctKeys.length;
@@ -401,13 +463,43 @@ export default function StudentExamPage() {
         const pairs = q.pasanganMenjodohkan || [];
         const studentPairs = ans?.menjodohkan || {};
         let matched = 0;
-        pairs.forEach((p) => {
-          if (studentPairs[p.premis] && studentPairs[p.premis] === p.target) matched++;
+
+        pairs.forEach((p, pIdx) => {
+          // Look up by pair.id, pair.premis, or index
+          const studentChoice =
+            studentPairs[p.id] ||
+            studentPairs[p.premis] ||
+            studentPairs[`pair-${pIdx + 1}`] ||
+            studentPairs[`pair-${p.id}`];
+
+          if (
+            studentChoice &&
+            p.target &&
+            studentChoice.trim().toLowerCase() === p.target.trim().toLowerCase()
+          ) {
+            matched++;
+          }
         });
-        studentAnsStr = Object.keys(studentPairs).length > 0 ? JSON.stringify(studentPairs) : "-";
+
+        if (pairs.length > 0 && Object.keys(studentPairs).length > 0) {
+          studentAnsStr = pairs
+            .map((p, pIdx) => {
+              const val =
+                studentPairs[p.id] ||
+                studentPairs[p.premis] ||
+                studentPairs[`pair-${pIdx + 1}`] ||
+                '(Belum dijodohkan)';
+              return `${p.premis} -> ${val}`;
+            })
+            .join("; ");
+        } else {
+          studentAnsStr =
+            Object.keys(studentPairs).length > 0 ? JSON.stringify(studentPairs) : "-";
+        }
         kunciStr = pairs.map((p) => `${p.premis} -> ${p.target}`).join("; ");
+
         earned = Math.round((matched / (pairs.length || 1)) * qBobot);
-        isBenar = matched === pairs.length;
+        isBenar = pairs.length > 0 && matched === pairs.length;
         if (isBenar) correctCount++;
         menjodohkanPoints += earned;
       } else if (q.tipeSoal === "URAIAN") {

@@ -21,6 +21,11 @@ import {
   Calendar,
   Layers,
   ArrowRight,
+  Edit3,
+  Save,
+  Wand2,
+  Check,
+  RotateCcw,
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
 import { HasilUjianSiswa, JawabanDetailSiswa } from '@/types/cbt';
@@ -29,7 +34,7 @@ function HasilNilaiContent() {
   const searchParams = useSearchParams();
   const initialJadwalId = searchParams.get('jadwalId') || 'ALL';
 
-  const { hasilList, allHasilList, jadwalList, allJadwalList } = useCBTData();
+  const { hasilList, allHasilList, jadwalList, allJadwalList, addHasilUjian } = useCBTData();
   const [scopeFilter, setScopeFilter] = useState<'mine' | 'all'>('mine');
   const activeHasilSource = scopeFilter === 'mine' ? hasilList : allHasilList;
   const activeJadwalSource = scopeFilter === 'mine' ? jadwalList : allJadwalList;
@@ -40,8 +45,11 @@ function HasilNilaiContent() {
   const [selectedKelas, setSelectedKelas] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
 
-  // Modal State for Student Answer Sheet
+  // Modal State for Student Answer Sheet & Manual Correction
   const [inspectedStudent, setInspectedStudent] = useState<HasilUjianSiswa | null>(null);
+  const [editingStudentHasil, setEditingStudentHasil] = useState<HasilUjianSiswa | null>(null);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState<boolean>(true);
 
   // Filtered List
   const filteredHasil = useMemo(() => {
@@ -124,6 +132,175 @@ function HasilNilaiContent() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // =========================================================================
+  // HELPER & ACTIONS FOR INSPECTING & EDITING STUDENT SCORES (KOREKSI MANUAL)
+  // =========================================================================
+  const handleOpenLembarJawaban = (item: HasilUjianSiswa) => {
+    setInspectedStudent(item);
+    setEditingStudentHasil(JSON.parse(JSON.stringify(item)));
+    setSaveSuccessMsg(null);
+  };
+
+  const recalculateHasilScores = (h: HasilUjianSiswa): HasilUjianSiswa => {
+    let pg = 0;
+    let pgk = 0;
+    let menjodohkan = 0;
+    let uraian = 0;
+    let earnedHots = 0;
+    let totalHots = 0;
+    let totalScore = 0;
+    let maxScore = 0;
+
+    h.jawabanDetail.forEach((q) => {
+      const bobot = q.bobot || 10;
+      maxScore += bobot;
+      const earned = Math.max(0, Math.min(bobot, Number(q.nilaiDiperoleh) || 0));
+      totalScore += earned;
+
+      if (q.isHots) {
+        totalHots += bobot;
+        earnedHots += earned;
+      }
+
+      if (q.tipeSoal === 'PG') pg += earned;
+      else if (q.tipeSoal === 'PGK') pgk += earned;
+      else if (q.tipeSoal === 'MENJODOHKAN') menjodohkan += earned;
+      else if (q.tipeSoal === 'URAIAN') uraian += earned;
+    });
+
+    const scaledScore = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+    const kkm = currentJadwal?.kkm || 75;
+    const isTuntas = scaledScore >= kkm;
+
+    return {
+      ...h,
+      nilaiAkhir: scaledScore,
+      statusKelulusan: isTuntas ? 'TUNTAS' : 'BELUM_TUNTAS',
+      breakdown: {
+        pg,
+        pgk,
+        menjodohkan,
+        uraian,
+        hotsMasteryRate: totalHots > 0 ? Math.round((earnedHots / totalHots) * 100) : 100,
+      },
+    };
+  };
+
+  const handleToggleQuestionStatus = (soalId: string, shouldBeBenar: boolean) => {
+    if (!editingStudentHasil) return;
+    const updated = JSON.parse(JSON.stringify(editingStudentHasil)) as HasilUjianSiswa;
+    const targetQ = updated.jawabanDetail.find((d) => d.soalId === soalId);
+    if (!targetQ) return;
+
+    targetQ.isBenar = shouldBeBenar;
+    targetQ.nilaiDiperoleh = shouldBeBenar ? targetQ.bobot : 0;
+
+    const recalculated = recalculateHasilScores(updated);
+    setEditingStudentHasil(recalculated);
+  };
+
+  const handleScoreInputChange = (soalId: string, points: number) => {
+    if (!editingStudentHasil) return;
+    const updated = JSON.parse(JSON.stringify(editingStudentHasil)) as HasilUjianSiswa;
+    const targetQ = updated.jawabanDetail.find((d) => d.soalId === soalId);
+    if (!targetQ) return;
+
+    const safePoints = Math.max(0, Math.min(targetQ.bobot, points));
+    targetQ.nilaiDiperoleh = safePoints;
+    targetQ.isBenar = safePoints === targetQ.bobot;
+
+    const recalculated = recalculateHasilScores(updated);
+    setEditingStudentHasil(recalculated);
+  };
+
+  const handleAutoFixMenjodohkan = () => {
+    if (!editingStudentHasil) return;
+    const updated = JSON.parse(JSON.stringify(editingStudentHasil)) as HasilUjianSiswa;
+    let fixedCount = 0;
+
+    updated.jawabanDetail = updated.jawabanDetail.map((soal) => {
+      if (soal.tipeSoal === 'MENJODOHKAN') {
+        let isCorrect = false;
+        let formattedAnswer = soal.jawabanSiswa;
+
+        try {
+          if (soal.jawabanSiswa.trim().startsWith('{') && soal.jawabanSiswa.trim().endsWith('}')) {
+            const parsed = JSON.parse(soal.jawabanSiswa) as Record<string, string>;
+            const parsedEntries = Object.entries(parsed);
+
+            // Parse kunciJawaban: "Dekomposisi -> Memecah masalah menjadi bagian kecil; Pengenalan Pola -> ..."
+            const keyPairs = soal.kunciJawaban.split(';').map((s) => {
+              const [premis, target] = s.split('->').map((p) => (p || '').trim());
+              return { premis: premis || '', target: target || '' };
+            });
+
+            const studentValues = parsedEntries.map(([_, v]) => v.trim().toLowerCase());
+            const expectedTargets = keyPairs.map((kp) => kp.target.trim().toLowerCase());
+
+            const matchedAll =
+              expectedTargets.length > 0 &&
+              expectedTargets.every((t) => studentValues.includes(t));
+
+            if (matchedAll) {
+              isCorrect = true;
+              fixedCount++;
+              formattedAnswer = keyPairs
+                .map((kp, idx) => {
+                  const val =
+                    parsed[`pair-${idx + 1}`] ||
+                    parsed[kp.premis] ||
+                    studentValues[idx] ||
+                    kp.target;
+                  return `${kp.premis} -> ${val}`;
+                })
+                .join('; ');
+            }
+          } else {
+            const keyTargets = soal.kunciJawaban
+              .split(';')
+              .map((s) => (s.split('->')[1] || '').trim().toLowerCase())
+              .filter(Boolean);
+            if (
+              keyTargets.length > 0 &&
+              keyTargets.every((t) => soal.jawabanSiswa.toLowerCase().includes(t))
+            ) {
+              isCorrect = true;
+              fixedCount++;
+            }
+          }
+        } catch (e) {
+          console.warn('Auto-fix parse err:', e);
+        }
+
+        if (isCorrect) {
+          return {
+            ...soal,
+            isBenar: true,
+            nilaiDiperoleh: soal.bobot,
+            jawabanSiswa: formattedAnswer,
+          };
+        }
+      }
+      return soal;
+    });
+
+    const recalculated = recalculateHasilScores(updated);
+    setEditingStudentHasil(recalculated);
+    setSaveSuccessMsg(
+      fixedCount > 0
+        ? `⚡ Berhasil mengoreksi ${fixedCount} butir Menjodohkan menjadi BENAR (Skor 100%). Klik "Simpan Perubahan Nilai" untuk menetapkan!`
+        : 'Seluruh butir Menjodohkan telah diperiksa.'
+    );
+  };
+
+  const handleSaveEditedHasil = () => {
+    if (!editingStudentHasil) return;
+    addHasilUjian(editingStudentHasil);
+    setInspectedStudent(editingStudentHasil);
+    setSaveSuccessMsg('✅ Sukses! Perubahan nilai dan koreksi jawaban berhasil disimpan ke sistem CBT.');
+    setTimeout(() => setSaveSuccessMsg(null), 4000);
   };
 
   return (
@@ -435,8 +612,8 @@ function HasilNilaiContent() {
                       {/* Action */}
                       <td className="px-4 py-3.5 text-right">
                         <button
-                          onClick={() => setInspectedStudent(item)}
-                          className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs transition-colors flex items-center gap-1.5 ml-auto"
+                          onClick={() => handleOpenLembarJawaban(item)}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs transition-colors flex items-center gap-1.5 ml-auto cursor-pointer"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>Lembar Jawaban</span>
@@ -451,71 +628,140 @@ function HasilNilaiContent() {
         </div>
       </div>
 
-      {/* ======================= MODAL DETAIL LEMBAR JAWABAN SISWA ======================= */}
-      {inspectedStudent && (
+      {/* ======================= MODAL DETAIL & KOREKSI LEMBAR JAWABAN SISWA ======================= */}
+      {inspectedStudent && editingStudentHasil && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-6 shadow-2xl border border-slate-100">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-5 shadow-2xl border border-slate-100 animate-in fade-in">
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Inspeksi Lembar Jawaban Siswa
+                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600">
+                  Inspeksi & Koreksi Lembar Jawaban Siswa
                 </span>
                 <h3 className="text-xl font-extrabold text-slate-900 mt-0.5">
-                  {inspectedStudent.namaSiswa}
+                  {editingStudentHasil.namaSiswa}
                 </h3>
-                <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                   <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Kelas: {inspectedStudent.kelas}
+                    Kelas: {editingStudentHasil.kelas}
                   </span>
                   <span>•</span>
-                  <span>Disubmit: {inspectedStudent.waktuSubmit}</span>
+                  <span>NISN: {editingStudentHasil.nisn}</span>
+                  <span>•</span>
+                  <span>Disubmit: {editingStudentHasil.waktuSubmit}</span>
                 </div>
               </div>
 
-              {/* Score Badge */}
-              <div className="text-right">
-                <div
-                  className={`text-3xl font-black ${
-                    inspectedStudent.statusKelulusan === 'TUNTAS'
-                      ? 'text-emerald-600'
-                      : 'text-rose-600'
-                  }`}
-                >
-                  {inspectedStudent.nilaiAkhir}
+              {/* Live Recalculated Score Badge */}
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <div className="text-xs font-bold text-slate-400">NILAI AKHIR:</div>
+                  <div
+                    className={`text-3xl font-black ${
+                      editingStudentHasil.statusKelulusan === 'TUNTAS'
+                        ? 'text-emerald-600'
+                        : 'text-rose-600'
+                    }`}
+                  >
+                    {editingStudentHasil.nilaiAkhir}
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      editingStudentHasil.statusKelulusan === 'TUNTAS'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {editingStudentHasil.statusKelulusan}
+                  </span>
                 </div>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    inspectedStudent.statusKelulusan === 'TUNTAS'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-rose-100 text-rose-800'
-                  }`}
+
+                <button
+                  onClick={() => {
+                    setInspectedStudent(null);
+                    setEditingStudentHasil(null);
+                  }}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                  title="Tutup Modal"
                 >
-                  {inspectedStudent.statusKelulusan}
-                </span>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
-            {/* Questions Review List */}
+            {/* Notification Toast */}
+            {saveSuccessMsg && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between shadow-xs animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{saveSuccessMsg}</span>
+                </div>
+                <button
+                  onClick={() => setSaveSuccessMsg(null)}
+                  className="text-emerald-700 hover:text-emerald-900 text-xs"
+                >
+                  &times;
+                </button>
+              </div>
+            )}
+
+            {/* Teacher Correction Toolbar */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-slate-50 border border-blue-200/60 flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Alat Koreksi Guru & Override Nilai</span>
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Klik tombol cepat pada setiap butir soal untuk mengubah status penilaian respon siswa.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAutoFixMenjodohkan}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 cursor-pointer transition active:scale-95"
+                  title="Otomatis mengecek dan membetulkan soal Menjodohkan yang format responnya cocok"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span>⚡ Koreksi Otomatis Menjodohkan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveEditedHasil}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-600/20 flex items-center gap-1.5 cursor-pointer transition active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Perubahan Nilai</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Questions Review & Edit List */}
             <div className="space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Pemeriksaan Butir per Butir (Kunci Jawaban vs Respon Siswa):
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                <span>Pemeriksaan Butir per Butir (Kunci Jawaban vs Respon Siswa):</span>
+                <span className="text-[11px] font-normal normal-case text-slate-400">
+                  Total {editingStudentHasil.jawabanDetail.length} Butir Soal
+                </span>
               </h4>
 
-              {inspectedStudent.jawabanDetail.map((soal, idx) => (
+              {editingStudentHasil.jawabanDetail.map((soal, idx) => (
                 <div
-                  key={soal.soalId}
-                  className={`p-4 rounded-2xl border text-xs space-y-3 ${
+                  key={soal.soalId || idx}
+                  className={`p-4 rounded-2xl border text-xs space-y-3 transition-all ${
                     soal.isBenar
                       ? 'bg-emerald-50/40 border-emerald-200'
                       : 'bg-rose-50/40 border-rose-200'
                   }`}
                 >
                   {/* Top Bar of each question */}
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/50 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-800">Soal #{idx + 1}</span>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[10px]">
+                      <span className="font-extrabold text-slate-800 text-sm">Soal #{idx + 1}</span>
+                      <span className="px-2 py-0.5 rounded bg-white text-slate-700 font-semibold text-[10px] border border-slate-200 shadow-xs">
                         {soal.tipeSoal}
                       </span>
                       {soal.isHots && (
@@ -525,33 +771,76 @@ function HasilNilaiContent() {
                       )}
                     </div>
 
+                    {/* Quick Teacher Score Controls */}
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-700">
-                        Poin: {soal.nilaiDiperoleh} / {soal.bobot}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      <button
+                        type="button"
+                        onClick={() => handleToggleQuestionStatus(soal.soalId, true)}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition cursor-pointer ${
                           soal.isBenar
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300'
                         }`}
+                        title="Tandai butir ini sebagai BENAR (Skor Penuh)"
                       >
-                        {soal.isBenar ? 'BENAR' : 'PERLU PERBAIKAN'}
-                      </span>
+                        <Check className="w-3 h-3" />
+                        <span>Tandai Benar</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleQuestionStatus(soal.soalId, false)}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center gap-1 transition cursor-pointer ${
+                          !soal.isBenar
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'bg-white hover:bg-rose-50 text-rose-700 border border-rose-300'
+                        }`}
+                        title="Tandai butir ini sebagai PERLU PERBAIKAN (0 Poin)"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>Tandai Salah</span>
+                      </button>
+
+                      {/* Manual Score Input */}
+                      <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-slate-300">
+                        <span className="text-[10px] text-slate-500 font-bold">Poin:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max={soal.bobot}
+                          value={soal.nilaiDiperoleh}
+                          onChange={(e) =>
+                            handleScoreInputChange(soal.soalId, parseFloat(e.target.value) || 0)
+                          }
+                          className="w-10 text-center font-bold text-slate-800 border-none p-0 focus:ring-0 text-xs"
+                        />
+                        <span className="text-[10px] text-slate-400 font-bold">/ {soal.bobot}</span>
+                      </div>
                     </div>
                   </div>
 
                   {/* Pertanyaan */}
-                  <p className="font-medium text-slate-800 leading-relaxed">{soal.pertanyaan}</p>
+                  <p className="font-semibold text-slate-800 leading-relaxed">{soal.pertanyaan}</p>
 
                   {/* Comparison: Student Answer vs Answer Key */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Jawaban Siswa:
-                      </span>
+                    <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          Jawaban Siswa:
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                            soal.isBenar
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {soal.isBenar ? 'BENAR' : 'PERLU PERBAIKAN'}
+                        </span>
+                      </div>
                       <p
-                        className={`font-semibold ${
+                        className={`font-semibold text-xs leading-relaxed break-words ${
                           soal.isBenar ? 'text-emerald-700' : 'text-rose-700'
                         }`}
                       >
@@ -559,11 +848,13 @@ function HasilNilaiContent() {
                       </p>
                     </div>
 
-                    <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
+                    <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1 shadow-xs">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">
                         Kunci Jawaban Guru:
                       </span>
-                      <p className="font-semibold text-slate-700">{soal.kunciJawaban}</p>
+                      <p className="font-semibold text-slate-700 text-xs leading-relaxed break-words">
+                        {soal.kunciJawaban}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -571,16 +862,30 @@ function HasilNilaiContent() {
             </div>
 
             {/* Modal Footer */}
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                Pengerjaan otomatis tervalidasi oleh Engine CBT.
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 text-center sm:text-left">
+                Setelah mengoreksi atau mengubah poin, pastikan Anda menekan tombol <b>Simpan Perubahan Nilai</b>.
               </span>
-              <button
-                onClick={() => setInspectedStudent(null)}
-                className="px-5 py-2 rounded-xl bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800 transition-colors"
-              >
-                Tutup Lembar Jawaban
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveEditedHasil}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center gap-1.5 cursor-pointer transition active:scale-95"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Simpan Perubahan Nilai</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectedStudent(null);
+                    setEditingStudentHasil(null);
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
         </div>

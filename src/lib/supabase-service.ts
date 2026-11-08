@@ -5,7 +5,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
-import { Soal, Stimulus, JadwalUjian, HasilUjianSiswa, GuruAccount } from '@/types/cbt';
+import { Soal, Stimulus, JadwalUjian, HasilUjianSiswa, GuruAccount, LiveStudentProgress } from '@/types/cbt';
 
 const db = supabase as any;
 
@@ -473,6 +473,7 @@ export async function fetchStimulusFromDb(guruUsername?: string): Promise<Stimul
       .from('stimulus')
       .select('*')
       .neq('tipe', 'GURU_ACCOUNT')
+      .neq('tipe', 'CBT_LIVE_PROGRESS')
       .order('created_at', { ascending: false });
 
     // Jika bukan admin dan parameter guru ada, filter per guru
@@ -775,6 +776,204 @@ export async function deleteHasilFromDb(id: string): Promise<boolean> {
   try {
     const { error } = await db.from('hasil_ujian').delete().eq('id', id);
     return !error;
+  } catch {
+    return false;
+  }
+}
+
+// ==========================================
+// 6. LIVE MONITORING & PROGRESS TRACKING SYNC
+// ==========================================
+
+/**
+ * Simpan progress live siswa ke Supabase (menggunakan table stimulus sebagai shared KV store)
+ * agar semua container Vercel dapat membaca seluruh siswa tanpa terpecah.
+ */
+export async function saveLiveProgressToDb(progress: LiveStudentProgress): Promise<boolean> {
+  try {
+    const rawStudentId = progress.studentId || `${progress.studentName}-${progress.kelas}`;
+    const safeStudentKey = rawStudentId.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const recordId = `cbt_prog_${progress.scheduleId}_${safeStudentKey}`;
+
+    // Jika siswa sudah submit / selesai, hapus dari live monitoring agar tidak menumpuk di dashboard guru
+    if (progress.status === 'SELESAI') {
+      try {
+        await db.from('stimulus').delete().eq('id', recordId);
+      } catch {
+        // non-fatal
+      }
+      return true;
+    }
+
+    // 1. Upsert ke stimulus dengan tipe 'CBT_LIVE_PROGRESS'
+    await db.from('stimulus').upsert({
+      id: recordId,
+      judul: progress.studentName,
+      konten_teks: JSON.stringify(progress),
+      tipe: 'CBT_LIVE_PROGRESS',
+      sumber: progress.scheduleId,
+    });
+
+    // 2. Perbarui stempel last_active di login_siswa jika ada
+    try {
+      const cleanName = progress.studentName.trim();
+      const cleanKelas = progress.kelas.trim();
+      const studentLoginId = `siswa_${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${cleanKelas
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '_')}`;
+
+      await db
+        .from('login_siswa')
+        .update({
+          last_active: new Date().toISOString(),
+          status: 'aktif',
+        })
+        .eq('id', studentLoginId);
+    } catch {
+      // non-fatal
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Mengambil seluruh progress siswa yang SEDANG UJIAN untuk suatu jadwal dari Supabase.
+ * Siswa yang sudah mengumpulkan (hasil_ujian) TIDAK dimasukkan agar tidak mengotori dashboard live guru.
+ */
+export async function fetchLiveProgressFromDb(scheduleId: string): Promise<LiveStudentProgress[]> {
+  const mergedMap = new Map<string, LiveStudentProgress>();
+
+  try {
+    // 0. Ambil metadata total soal & durasi dari jadwal_ujian
+    let defaultTotalQuestions = 18;
+    let defaultRemainingSeconds = 3600;
+    try {
+      const { data: sched } = await db
+        .from('jadwal_ujian')
+        .select('total_soal, durasi_menit, soal_ids')
+        .eq('id', scheduleId)
+        .maybeSingle();
+
+      if (sched) {
+        defaultTotalQuestions =
+          Number(sched.total_soal) ||
+          (Array.isArray(sched.soal_ids) ? sched.soal_ids.length : 18);
+        defaultRemainingSeconds = (Number(sched.durasi_menit) || 60) * 60;
+      }
+    } catch {
+      // non-fatal
+    }
+
+    // 1. Ambil daftar siswa yang SUDAH SELESAI dari hasil_ujian agar dieksklusikan 100%
+    const completedSet = new Set<string>();
+    try {
+      const { data: hasilRows } = await db
+        .from('hasil_ujian')
+        .select('nama_siswa, kelas')
+        .eq('jadwal_id', scheduleId);
+
+      if (hasilRows && Array.isArray(hasilRows)) {
+        hasilRows.forEach((h: any) => {
+          const normKey = `${(h.nama_siswa || '').trim().toLowerCase()}-${(h.kelas || '')
+            .trim()
+            .toLowerCase()}`;
+          completedSet.add(normKey);
+        });
+      }
+    } catch {
+      // non-fatal
+    }
+
+    // 2. Ambil dari stimulus (tipe CBT_LIVE_PROGRESS & sumber = scheduleId)
+    const { data: progRows } = await db
+      .from('stimulus')
+      .select('*')
+      .eq('tipe', 'CBT_LIVE_PROGRESS')
+      .eq('sumber', scheduleId);
+
+    if (progRows && Array.isArray(progRows)) {
+      progRows.forEach((row: any) => {
+        try {
+          const parsed: LiveStudentProgress = JSON.parse(row.konten_teks);
+          if (parsed && parsed.studentName) {
+            const normKey = `${parsed.studentName.trim().toLowerCase()}-${(parsed.kelas || '')
+              .trim()
+              .toLowerCase()}`;
+            // Jangan masukkan yang sudah selesai
+            if (completedSet.has(normKey) || parsed.status === 'SELESAI') {
+              return;
+            }
+            if (!parsed.totalQuestions || parsed.totalQuestions === 0) {
+              parsed.totalQuestions = defaultTotalQuestions;
+            }
+            const key = parsed.studentId || `${parsed.studentName.trim()}-${(parsed.kelas || '').trim()}`;
+            mergedMap.set(key, parsed);
+          }
+        } catch {
+          // ignore corrupted json
+        }
+      });
+    }
+
+    // 3. Ambil dari login_siswa untuk jadwal ini (siswa aktif yang baru mulai)
+    const { data: loginRows } = await db
+      .from('login_siswa')
+      .select('*')
+      .eq('jadwal_id', scheduleId);
+
+    if (loginRows && Array.isArray(loginRows)) {
+      loginRows.forEach((r: any) => {
+        const studentName = r.nama_lengkap;
+        const kelas = r.kelas;
+        const normKey = `${(studentName || '').trim().toLowerCase()}-${(kelas || '')
+          .trim()
+          .toLowerCase()}`;
+
+        // Jika siswa sudah submit di hasil_ujian, JANGAN MASUKKAN ke live monitoring
+        if (completedSet.has(normKey) || r.status === 'selesai') {
+          return;
+        }
+
+        const key = `${studentName.trim()}-${(kelas || '').trim()}`;
+        if (!mergedMap.has(key)) {
+          mergedMap.set(key, {
+            scheduleId,
+            studentId: key,
+            studentName,
+            kelas: kelas || '-',
+            nisn: r.nisn || kelas || '-',
+            totalQuestions: defaultTotalQuestions,
+            answeredCount: 0,
+            currentQuestionIndex: 0,
+            remainingSeconds: defaultRemainingSeconds,
+            violationsCount: 0,
+            isLocked: false,
+            lockRemainingSeconds: 0,
+            status: 'MENGERJAKAN',
+            lastActive: r.last_active || r.created_at || new Date().toISOString(),
+          });
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[fetchLiveProgressFromDb] Warning:', err);
+  }
+
+  return Array.from(mergedMap.values());
+}
+
+/**
+ * Hapus data progress siswa dari Supabase
+ */
+export async function deleteLiveProgressFromDb(scheduleId: string, studentId: string): Promise<boolean> {
+  try {
+    const safeStudentKey = studentId.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const recordId = `cbt_prog_${scheduleId}_${safeStudentKey}`;
+    await db.from('stimulus').delete().eq('id', recordId);
+    return true;
   } catch {
     return false;
   }

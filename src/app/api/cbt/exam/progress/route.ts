@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { LiveStudentProgress } from '@/types/cbt';
+import {
+  saveLiveProgressToDb,
+  fetchLiveProgressFromDb,
+  deleteLiveProgressFromDb,
+} from '@/lib/supabase-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,13 +66,54 @@ export async function GET(req: NextRequest) {
     const scheduleId = searchParams.get('scheduleId');
     const map = getProgressMap();
 
-    let list = Array.from(map.values());
+    // 1. Ambil dari memory local
+    const combinedMap = new Map<string, LiveStudentProgress>();
+    map.forEach((item) => {
+      if (!scheduleId || item.scheduleId === scheduleId) {
+        combinedMap.set(item.studentId, item);
+      }
+    });
 
+    // 2. Ambil dari Supabase (sumber data bersama antar seluruh serverless container Vercel)
     if (scheduleId) {
-      list = list.filter((item) => item.scheduleId === scheduleId);
+      try {
+        const dbStudents = await fetchLiveProgressFromDb(scheduleId);
+        dbStudents.forEach((dbItem) => {
+          const existing = combinedMap.get(dbItem.studentId);
+          if (!existing) {
+            combinedMap.set(dbItem.studentId, dbItem);
+            map.set(`${scheduleId}:::${dbItem.studentId}`, dbItem);
+          } else {
+            // Gabungkan status: jika sudah submit di DB, tetapkan SELESAI
+            if (dbItem.status === 'SELESAI') {
+              existing.status = 'SELESAI';
+              if (dbItem.totalQuestions > 0) existing.answeredCount = dbItem.totalQuestions;
+              existing.remainingSeconds = 0;
+              existing.isLocked = false;
+            } else if (new Date(dbItem.lastActive).getTime() > new Date(existing.lastActive).getTime()) {
+              const merged = { ...existing, ...dbItem };
+              combinedMap.set(dbItem.studentId, merged);
+              map.set(`${scheduleId}:::${dbItem.studentId}`, merged);
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('[ProgressAPI] Supabase live fetch warning:', err);
+      }
     }
 
-    // Sort: locked first (needs attention), then active, then submitted
+    // Eksklusikan siswa yang sudah SELESAI agar tidak mengotori live monitoring
+    let list = Array.from(combinedMap.values()).filter((s) => s.status !== 'SELESAI');
+
+    // Backfill totalQuestions jika ada record yang belum ada totalQuestions
+    const knownTotal = list.find((s) => s.totalQuestions > 0)?.totalQuestions || 18;
+    list.forEach((s) => {
+      if (!s.totalQuestions || s.totalQuestions === 0) {
+        s.totalQuestions = knownTotal;
+      }
+    });
+
+    // Sort: locked first (needs attention), then active
     list.sort((a, b) => {
       if (a.isLocked && !b.isLocked) return -1;
       if (!a.isLocked && b.isLocked) return 1;
@@ -76,7 +122,7 @@ export async function GET(req: NextRequest) {
 
     const activeCount = list.filter((s) => s.status === 'MENGERJAKAN' && !s.isLocked).length;
     const lockedCount = list.filter((s) => s.isLocked || s.status === 'TERKUNCI').length;
-    const submittedCount = list.filter((s) => s.status === 'SELESAI').length;
+    const submittedCount = 0; // Siswa selesai dieksklusikan dari live monitor
 
     const totalStudents = list.length;
     const totalProgressPct = list.reduce((sum, s) => {
@@ -121,25 +167,48 @@ export async function POST(req: NextRequest) {
       const key = `${scheduleId}:::${studentId}`;
       const existing = map.get(key);
 
-      if (existing) {
-        existing.isLocked = false;
-        existing.lockRemainingSeconds = 0;
-        existing.status = 'MENGERJAKAN';
-        existing.forceUnlock = true;
-        map.set(key, existing);
-        persistProgress();
+      const unlockedItem: LiveStudentProgress = existing
+        ? {
+            ...existing,
+            isLocked: false,
+            lockRemainingSeconds: 0,
+            status: 'MENGERJAKAN',
+            forceUnlock: true,
+            lastActive: new Date().toISOString(),
+          }
+        : {
+            scheduleId,
+            studentId,
+            studentName: studentId,
+            kelas: '-',
+            nisn: '-',
+            totalQuestions: 0,
+            answeredCount: 0,
+            currentQuestionIndex: 0,
+            remainingSeconds: 3600,
+            violationsCount: 0,
+            isLocked: false,
+            lockRemainingSeconds: 0,
+            status: 'MENGERJAKAN',
+            forceUnlock: true,
+            lastActive: new Date().toISOString(),
+          };
 
-        return NextResponse.json({
-          success: true,
-          message: `Kunci ujian untuk siswa ${existing.studentName} berhasil dibuka oleh guru!`,
-          student: existing,
-        });
+      map.set(key, unlockedItem);
+      persistProgress();
+
+      // Sinkronkan unlock ke Supabase
+      try {
+        await saveLiveProgressToDb(unlockedItem);
+      } catch {
+        // non-fatal
       }
 
-      return NextResponse.json(
-        { success: false, message: 'Data siswa tidak ditemukan.' },
-        { status: 404 }
-      );
+      return NextResponse.json({
+        success: true,
+        message: `Kunci ujian untuk siswa ${unlockedItem.studentName} berhasil dibuka oleh guru!`,
+        student: unlockedItem,
+      });
     }
 
     // Check if this is a delete action triggered by teacher (to clear test users)
@@ -156,6 +225,13 @@ export async function POST(req: NextRequest) {
       const key = `${scheduleId}:::${studentId}`;
       map.delete(key);
       persistProgress();
+
+      // Hapus juga dari Supabase
+      try {
+        await deleteLiveProgressFromDb(scheduleId, studentId);
+      } catch {
+        // non-fatal
+      }
 
       return NextResponse.json({
         success: true,
@@ -220,6 +296,13 @@ export async function POST(req: NextRequest) {
 
     map.set(key, updatedData);
     persistProgress();
+
+    // Simpan ke Supabase agar seluruh kontainer Vercel memiliki data murid ini
+    try {
+      await saveLiveProgressToDb(updatedData);
+    } catch {
+      // non-fatal
+    }
 
     return NextResponse.json({
       success: true,

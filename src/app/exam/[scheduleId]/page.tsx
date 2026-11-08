@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -118,6 +118,23 @@ export default function StudentExamPage() {
           nisn: savedKelas,
         });
         setIsExamStarted(true);
+
+        // Langsung daftarkan keberadaan siswa ke server monitor saat reload/resume
+        setTimeout(() => {
+          fetch("/api/cbt/exam/progress", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              scheduleId,
+              studentId: `${savedName}-${savedKelas}`,
+              studentName: savedName,
+              kelas: savedKelas,
+              nisn: savedKelas,
+              status: "MENGERJAKAN",
+              lastActive: new Date().toISOString(),
+            }),
+          }).catch(() => {});
+        }, 300);
       }
     }
   }, [scheduleId]);
@@ -367,36 +384,98 @@ export default function StudentExamPage() {
     return () => clearInterval(interval);
   }, [isExamStarted, isExamSubmitted, timerStorageKey]);
 
-  // Progress Synchronization with Server CBT & Teacher Monitor
+  // Ref to always hold the latest exam state without causing syncProgressWithServer re-instantiations
+  const latestStateRef = useRef({
+    isExamStarted,
+    isExamSubmitted,
+    studentInfo,
+    questions,
+    answers,
+    currentIndex,
+    remainingSeconds,
+    violationsCount,
+    isLocked,
+    lockRemainingSeconds,
+    scheduleId,
+  });
+
+  useEffect(() => {
+    latestStateRef.current = {
+      isExamStarted,
+      isExamSubmitted,
+      studentInfo,
+      questions,
+      answers,
+      currentIndex,
+      remainingSeconds,
+      violationsCount,
+      isLocked,
+      lockRemainingSeconds,
+      scheduleId,
+    };
+  });
+
+  // Progress Synchronization with Server CBT & Teacher Monitor (Stable reference)
   const syncProgressWithServer = useCallback(
     async (override?: Partial<LiveStudentProgress>) => {
-      if (!isExamStarted || !studentInfo.name) return;
+      const state = latestStateRef.current;
+      if (!state.isExamStarted || !state.studentInfo.name) return;
 
-      const answeredCount = questions.filter((q) => isQuestionAnswered(q, answers[q.id])).length;
-      const studentId = `${studentInfo.name.trim()}-${studentInfo.kelas.trim()}`;
+      const currentAnswers = override && (override as any)._answersOverride ? (override as any)._answersOverride : state.answers;
+
+      // Hitung dari objek jawaban langsung agar mencakup seluruh jenis soal (PG, PGK, Menjodohkan, Uraian)
+      let calculatedAnswered = 0;
+      if (currentAnswers && typeof currentAnswers === 'object') {
+        Object.keys(currentAnswers).forEach((qId) => {
+          const ans = currentAnswers[qId];
+          if (!ans) return;
+          const hasPg = Boolean(ans.pg && String(ans.pg).trim() !== '');
+          const hasPgk = Boolean(ans.pgk && Array.isArray(ans.pgk) && ans.pgk.length > 0);
+          const hasMatch = Boolean(
+            ans.menjodohkan &&
+              typeof ans.menjodohkan === 'object' &&
+              Object.values(ans.menjodohkan).some((v) => v && String(v).trim() !== '')
+          );
+          const hasUraian = Boolean(ans.uraian && String(ans.uraian).trim().length > 0);
+          if (hasPg || hasPgk || hasMatch || hasUraian) {
+            calculatedAnswered++;
+          }
+        });
+      }
+
+      // Pastikan totalQuestions tidak pernah 0
+      const totalQ =
+        state.questions.length > 0
+          ? state.questions.length
+          : override?.totalQuestions || (serverSchedule?.totalSoal || 18);
+
+      const studentId = `${state.studentInfo.name.trim()}-${state.studentInfo.kelas.trim()}`;
 
       const payload: LiveStudentProgress = {
-        scheduleId,
+        scheduleId: state.scheduleId,
         studentId,
-        studentName: studentInfo.name,
-        kelas: studentInfo.kelas,
-        nisn: studentInfo.nisn,
-        totalQuestions: questions.length,
-        answeredCount,
-        currentQuestionIndex: currentIndex,
-        remainingSeconds,
-        violationsCount,
-        isLocked,
-        lockRemainingSeconds,
-        status: isExamSubmitted ? "SELESAI" : isLocked ? "TERKUNCI" : "MENGERJAKAN",
+        studentName: state.studentInfo.name,
+        kelas: state.studentInfo.kelas,
+        nisn: state.studentInfo.nisn,
+        totalQuestions: totalQ,
+        answeredCount: override?.answeredCount !== undefined ? override.answeredCount : calculatedAnswered,
+        currentQuestionIndex: override?.currentQuestionIndex !== undefined ? override.currentQuestionIndex : state.currentIndex,
+        remainingSeconds: state.remainingSeconds,
+        violationsCount: state.violationsCount,
+        isLocked: state.isLocked,
+        lockRemainingSeconds: state.lockRemainingSeconds,
+        status: state.isExamSubmitted ? "SELESAI" : state.isLocked ? "TERKUNCI" : "MENGERJAKAN",
         lastActive: new Date().toISOString(),
         ...override,
       };
 
+      // Bersihkan properti internal override
+      delete (payload as any)._answersOverride;
+
       try {
         // Also update localStorage for zero-latency localhost cross-tab proctoring
         if (typeof window !== "undefined") {
-          const localKey = `cbt_live_progress_${scheduleId}`;
+          const localKey = `cbt_live_progress_${state.scheduleId}`;
           const raw = localStorage.getItem(localKey);
           const map = raw ? JSON.parse(raw) : {};
           map[studentId] = payload;
@@ -420,20 +499,7 @@ export default function StudentExamPage() {
         // Non-blocking
       }
     },
-    [
-      isExamStarted,
-      studentInfo,
-      questions,
-      answers,
-      currentIndex,
-      remainingSeconds,
-      violationsCount,
-      isLocked,
-      lockRemainingSeconds,
-      isExamSubmitted,
-      scheduleId,
-      penaltyLockStorageKey,
-    ]
+    [penaltyLockStorageKey]
   );
 
   // Trigger 2-Minute Lock Penalty on Anti-Cheat Violation
@@ -532,27 +598,33 @@ export default function StudentExamPage() {
     return () => clearInterval(interval);
   }, [isLocked, penaltyLockStorageKey, syncProgressWithServer]);
 
-  // Periodic heartbeat sync every 4 seconds
+  // Periodic heartbeat sync every 3 seconds (runs uninterrupted because syncProgressWithServer has a stable ref)
   useEffect(() => {
     if (!isExamStarted || isExamSubmitted) return;
 
+    // Send immediate ping upon entering/starting
+    syncProgressWithServer();
+
     const interval = setInterval(() => {
       syncProgressWithServer();
-    }, 4000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [isExamStarted, isExamSubmitted, syncProgressWithServer]);
 
-  // 4. Update Answer Handler with Autosave
+  // 4. Update Answer Handler with Autosave & Instant Proctor Notification
   const handleUpdateAnswer = useCallback(
     (updatedPartial: Partial<QuestionAnswerState>) => {
       const activeSoal = questions[currentIndex];
       if (!activeSoal) return;
 
+      let nextAnswersState: { [soalId: string]: QuestionAnswerState } = {};
+
       setAnswers((prev) => {
         const prevAnswer = prev[activeSoal.id] || {};
         const newAnswer = { ...prevAnswer, ...updatedPartial };
         const updatedState = { ...prev, [activeSoal.id]: newAnswer };
+        nextAnswersState = updatedState;
 
         // Save immediately to localStorage
         try {
@@ -568,8 +640,15 @@ export default function StudentExamPage() {
 
         return updatedState;
       });
+
+      // Instantly report updated answer count & progress percentage to live monitor!
+      setTimeout(() => {
+        syncProgressWithServer({
+          _answersOverride: nextAnswersState,
+        } as any);
+      }, 50);
     },
-    [questions, currentIndex, answersStorageKey]
+    [questions, currentIndex, answersStorageKey, syncProgressWithServer]
   );
 
   // Auto-submit callback on timeout
@@ -823,6 +902,7 @@ export default function StudentExamPage() {
   const goToQuestion = (index: number) => {
     if (index >= 0 && index < questions.length) {
       setCurrentIndex(index);
+      syncProgressWithServer({ currentQuestionIndex: index });
     }
   };
 

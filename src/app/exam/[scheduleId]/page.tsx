@@ -180,26 +180,42 @@ export default function StudentExamPage() {
     }).catch(() => {});
 
     setIsExamStarted(true);
-    // Send immediate initial progress to proctoring API
+
+    // Kirim status awal ke localStorage (localhost instant) & server API proctoring
+    const initialPayload: LiveStudentProgress = {
+      scheduleId,
+      studentId: `${trimmedName}-${trimmedKelas}`,
+      studentName: trimmedName,
+      kelas: trimmedKelas,
+      nisn: trimmedKelas,
+      totalQuestions: questions.length,
+      answeredCount: 0,
+      currentQuestionIndex: 0,
+      remainingSeconds: examSchedule.durasiMenit * 60,
+      violationsCount: 0,
+      isLocked: false,
+      lockRemainingSeconds: 0,
+      status: "MENGERJAKAN",
+      lastActive: new Date().toISOString(),
+    };
+
+    if (typeof window !== "undefined") {
+      try {
+        const localKey = `cbt_live_progress_${scheduleId}`;
+        const raw = localStorage.getItem(localKey);
+        const map = raw ? JSON.parse(raw) : {};
+        map[initialPayload.studentId] = initialPayload;
+        localStorage.setItem(localKey, JSON.stringify(map));
+        window.dispatchEvent(new Event("cbt_progress_updated"));
+      } catch {
+        // ignore
+      }
+    }
+
     fetch("/api/cbt/exam/progress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scheduleId,
-        studentId: `${trimmedName}-${trimmedKelas}`,
-        studentName: trimmedName,
-        kelas: trimmedKelas,
-        nisn: trimmedKelas,
-        totalQuestions: questions.length,
-        answeredCount: 0,
-        currentQuestionIndex: 0,
-        remainingSeconds: examSchedule.durasiMenit * 60,
-        violationsCount: 0,
-        isLocked: false,
-        lockRemainingSeconds: 0,
-        status: "MENGERJAKAN",
-        lastActive: new Date().toISOString(),
-      }),
+      body: JSON.stringify(initialPayload),
     }).catch(() => {});
   };
 
@@ -300,6 +316,9 @@ export default function StudentExamPage() {
   // Storage keys for anti-cheat
   const violationsStorageKey = `cbt_violations_${scheduleId}`;
   const penaltyLockStorageKey = `cbt_penalty_until_${scheduleId}`;
+
+  // Anti-cheat immunity grace period (mencegah loop terkunci saat refresh atau saat baru dibuka kuncinya)
+  const unlockImmunityUntilRef = useRef<number>(Date.now() + 6000); // 6 detik kekebalan saat pertama kali masuk ujian
 
   // 1. Initialize data from LocalStorage
   useEffect(() => {
@@ -490,7 +509,8 @@ export default function StudentExamPage() {
         });
         const data = await res.json();
         if (data?.forceUnlock) {
-          // Teacher remotely clicked "Buka Kunci" from live proctoring dashboard!
+          // Guru membuka kunci secara remote dari monitoring!
+          unlockImmunityUntilRef.current = Date.now() + 10000;
           setIsLocked(false);
           setLockRemainingSeconds(0);
           localStorage.removeItem(penaltyLockStorageKey);
@@ -507,10 +527,20 @@ export default function StudentExamPage() {
     (reason: string = "Membuka tab baru / berpindah aplikasi terdeteksi") => {
       if (!isExamStarted || isExamSubmitted) return;
 
+      // 1. Jika layar sudah terkunci, jangan buat penalti baru / timpa penalti yang sedang berjalan!
+      if (isLocked) return;
+
       const now = Date.now();
+
+      // 2. Jika dalam masa kekebalan dispensasi/baru dibuka kuncinya, abaikan!
+      if (now < unlockImmunityUntilRef.current) return;
+
+      // 3. Jika penalti di localStorage masih aktif berjalan, pastikan state isLocked aktif
       const existingUntil = Number(localStorage.getItem(penaltyLockStorageKey) || "0");
       if (existingUntil > now) {
-        // Already currently locked, don't re-trigger
+        const remaining = Math.ceil((existingUntil - now) / 1000);
+        setIsLocked(true);
+        setLockRemainingSeconds(remaining);
         return;
       }
 
@@ -518,7 +548,7 @@ export default function StudentExamPage() {
       setViolationsCount(nextViolations);
       localStorage.setItem(violationsStorageKey, String(nextViolations));
 
-      // 2 Minutes penalty = 120 seconds
+      // 2 Menit penalti = 120 detik
       const penaltyUntil = now + 120 * 1000;
       localStorage.setItem(penaltyLockStorageKey, String(penaltyUntil));
 
@@ -526,7 +556,7 @@ export default function StudentExamPage() {
       setLockRemainingSeconds(120);
       setLockReason(reason);
 
-      // Immediately alert server
+      // Beritahu proktor secara live
       syncProgressWithServer({
         violationsCount: nextViolations,
         isLocked: true,
@@ -537,6 +567,7 @@ export default function StudentExamPage() {
     [
       isExamStarted,
       isExamSubmitted,
+      isLocked,
       violationsCount,
       penaltyLockStorageKey,
       violationsStorageKey,
@@ -544,7 +575,7 @@ export default function StudentExamPage() {
     ]
   );
 
-  // Anti-Cheat: Listen for Visibility Change & Blur (Switching Tab / Opening New Tab / Minimizing)
+  // Anti-Cheat: Deteksi Perpindahan Tab / Buka Tab Baru / Minimizing
   useEffect(() => {
     if (!isExamStarted || isExamSubmitted) return;
 
@@ -555,9 +586,12 @@ export default function StudentExamPage() {
     };
 
     const handleWindowBlur = () => {
-      if (document.hidden || document.visibilityState === "hidden") {
-        triggerTabViolation("Fokus browser hilang / membuka tab baru terdeteksi");
-      }
+      // Tunggu 100ms: jika fokus keluar jendela browser atau tab berubah, picu pelanggaran
+      setTimeout(() => {
+        if (typeof document !== "undefined" && (!document.hasFocus() || document.hidden || document.visibilityState === "hidden")) {
+          triggerTabViolation("Fokus browser hilang / membuka tab baru terdeteksi");
+        }
+      }, 100);
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -569,7 +603,7 @@ export default function StudentExamPage() {
     };
   }, [isExamStarted, isExamSubmitted, triggerTabViolation]);
 
-  // Lock Countdown Timer (Ticks every 1 second during 2-minute penalty)
+  // Lock Countdown Timer (Berjalan setiap 1 detik saat penalti aktif)
   useEffect(() => {
     if (!isLocked) return;
 
@@ -578,13 +612,18 @@ export default function StudentExamPage() {
       const penaltyUntil = Number(localStorage.getItem(penaltyLockStorageKey) || "0");
       const diff = Math.ceil((penaltyUntil - now) / 1000);
 
-      if (diff <= 0) {
+      // Hitungan mundur selesai atau kunci sudah dilepas
+      if (diff <= 0 || !penaltyUntil) {
         clearInterval(interval);
+
+        // Beri masa kekebalan 10 detik agar saat murid kembali fokus ke tab TIDAK terkunci ulang!
+        unlockImmunityUntilRef.current = Date.now() + 10000;
+
         setIsLocked(false);
         setLockRemainingSeconds(0);
         localStorage.removeItem(penaltyLockStorageKey);
 
-        // Resume active status on server
+        // Laporkan ke server bahwa murid sudah kembali aktif
         syncProgressWithServer({
           isLocked: false,
           lockRemainingSeconds: 0,
@@ -597,6 +636,41 @@ export default function StudentExamPage() {
 
     return () => clearInterval(interval);
   }, [isLocked, penaltyLockStorageKey, syncProgressWithServer]);
+
+  // Polling Aktif Deteksi Dispensasi "Buka Kunci" dari Guru (setiap 2 detik saat layar terkunci)
+  useEffect(() => {
+    if (!isLocked || !isExamStarted || isExamSubmitted) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const state = latestStateRef.current;
+        if (!state.studentInfo.name) return;
+        const studentId = `${state.studentInfo.name.trim()}-${state.studentInfo.kelas.trim()}`;
+        const res = await fetch(
+          `/api/cbt/exam/progress?scheduleId=${encodeURIComponent(scheduleId)}&checkStudent=${encodeURIComponent(studentId)}`
+        );
+        const data = await res.json();
+
+        if (data?.forceUnlock || data?.isLocked === false) {
+          // Guru telah mengizinkan buka kunci dari live monitoring dashboard!
+          unlockImmunityUntilRef.current = Date.now() + 10000;
+          setIsLocked(false);
+          setLockRemainingSeconds(0);
+          localStorage.removeItem(penaltyLockStorageKey);
+
+          syncProgressWithServer({
+            isLocked: false,
+            lockRemainingSeconds: 0,
+            status: "MENGERJAKAN",
+          });
+        }
+      } catch {
+        // non-fatal
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [isLocked, isExamStarted, isExamSubmitted, scheduleId, penaltyLockStorageKey, syncProgressWithServer]);
 
   // Periodic heartbeat sync every 3 seconds (runs uninterrupted because syncProgressWithServer has a stable ref)
   useEffect(() => {
@@ -1425,6 +1499,40 @@ export default function StudentExamPage() {
                 Layar akan terbuka otomatis setelah hitungan mundur 00:00
               </span>
             </div>
+
+            {/* Tombol Cek Manual Dispensasi dari Guru */}
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const state = latestStateRef.current;
+                  const studentId = `${state.studentInfo.name.trim()}-${state.studentInfo.kelas.trim()}`;
+                  const res = await fetch(
+                    `/api/cbt/exam/progress?scheduleId=${encodeURIComponent(scheduleId)}&checkStudent=${encodeURIComponent(studentId)}`
+                  );
+                  const data = await res.json();
+                  if (data?.forceUnlock || data?.isLocked === false) {
+                    unlockImmunityUntilRef.current = Date.now() + 10000;
+                    setIsLocked(false);
+                    setLockRemainingSeconds(0);
+                    localStorage.removeItem(penaltyLockStorageKey);
+                    syncProgressWithServer({
+                      isLocked: false,
+                      lockRemainingSeconds: 0,
+                      status: "MENGERJAKAN",
+                    });
+                  } else {
+                    alert("Kunci belum dibuka oleh guru atau waktu penalti masih berjalan.");
+                  }
+                } catch {
+                  // ignore
+                }
+              }}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer border border-slate-300 shadow-xs"
+            >
+              <Unlock className="w-4 h-4 text-emerald-600" />
+              <span>Cek Status Dispensasi Buka Kunci dari Guru</span>
+            </button>
 
             {/* Violation Details & Teacher Report notice */}
             <div className="pt-2 border-t border-slate-100 text-xs text-slate-500 space-y-1">

@@ -978,3 +978,48 @@ export async function deleteLiveProgressFromDb(scheduleId: string, studentId: st
     return false;
   }
 }
+
+/**
+ * Memeriksa apakah guru telah membuka kunci siswa secara remote di Supabase.
+ * Mengembalikan true jika guru telah membuka kunci dan mereset flag forceUnlock di DB.
+ */
+export async function checkAndConsumeUnlockFromDb(
+  scheduleId: string,
+  studentId: string
+): Promise<boolean> {
+  try {
+    const safeStudentKey = studentId.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const recordId = `cbt_prog_${scheduleId}_${safeStudentKey}`;
+
+    const { data: row, error } = await db
+      .from('stimulus')
+      .select('konten_teks')
+      .eq('id', recordId)
+      .maybeSingle();
+
+    if (!error && row && row.konten_teks) {
+      const parsed: LiveStudentProgress = JSON.parse(row.konten_teks);
+      // HANYA jika guru secara eksplisit menyetel forceUnlock === true dari dashboard monitoring!
+      if (parsed && parsed.forceUnlock === true) {
+        // Konsumsi flag forceUnlock dan pastikan status kembali aktif
+        parsed.forceUnlock = false;
+        parsed.isLocked = false;
+        parsed.lockRemainingSeconds = 0;
+        parsed.status = 'MENGERJAKAN';
+        parsed.lastActive = new Date().toISOString();
+
+        await db
+          .from('stimulus')
+          .update({
+            konten_teks: JSON.stringify(parsed),
+          })
+          .eq('id', recordId);
+
+        return true;
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+  return false;
+}

@@ -6,6 +6,7 @@ import {
   saveLiveProgressToDb,
   fetchLiveProgressFromDb,
   deleteLiveProgressFromDb,
+  checkAndConsumeUnlockFromDb,
 } from '@/lib/supabase-service';
 
 export const dynamic = 'force-dynamic';
@@ -64,7 +65,49 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const scheduleId = searchParams.get('scheduleId');
+    const checkStudent = searchParams.get('checkStudent');
     const map = getProgressMap();
+
+    // Fast check status lock untuk polling client saat sedang terkunci
+    if (checkStudent && scheduleId) {
+      const inMem = map.get(`${scheduleId}:::${checkStudent}`);
+      if (inMem && inMem.forceUnlock === true) {
+        inMem.forceUnlock = false;
+        inMem.isLocked = false;
+        inMem.lockRemainingSeconds = 0;
+        inMem.status = 'MENGERJAKAN';
+        return NextResponse.json({
+          success: true,
+          forceUnlock: true,
+          isLocked: false,
+          lockRemainingSeconds: 0,
+        });
+      }
+
+      // Periksa dari Supabase (lintas kontainer cloud Vercel)
+      const dbUnlocked = await checkAndConsumeUnlockFromDb(scheduleId, checkStudent);
+      if (dbUnlocked) {
+        if (inMem) {
+          inMem.isLocked = false;
+          inMem.forceUnlock = false;
+          inMem.lockRemainingSeconds = 0;
+          inMem.status = 'MENGERJAKAN';
+        }
+        return NextResponse.json({
+          success: true,
+          forceUnlock: true,
+          isLocked: false,
+          lockRemainingSeconds: 0,
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        forceUnlock: false,
+        isLocked: inMem ? Boolean(inMem.isLocked) : false,
+        lockRemainingSeconds: inMem ? inMem.lockRemainingSeconds : 0,
+      });
+    }
 
     // 1. Ambil dari memory local
     const combinedMap = new Map<string, LiveStudentProgress>();
@@ -270,10 +313,20 @@ export async function POST(req: NextRequest) {
     const existing = map.get(key);
     let shouldForceUnlock = false;
 
-    if (existing && existing.forceUnlock) {
-      // Teacher unlocked from monitor!
+    if (existing && existing.forceUnlock === true) {
+      // Teacher unlocked from monitor in this container!
       shouldForceUnlock = true;
       existing.forceUnlock = false; // consume the flag
+    } else if (isLocked || (existing && existing.isLocked)) {
+      // HANYA periksa Supabase jika murid saat ini memang sedang berstatus terkunci!
+      try {
+        const dbUnlocked = await checkAndConsumeUnlockFromDb(scheduleId, effectiveId);
+        if (dbUnlocked) {
+          shouldForceUnlock = true;
+        }
+      } catch {
+        // non-fatal
+      }
     }
 
     const updatedData: LiveStudentProgress = {

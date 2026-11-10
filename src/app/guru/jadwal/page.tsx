@@ -32,7 +32,8 @@ import {
   ExternalLink,
   Search,
   Filter,
-  Radio
+  Radio,
+  Edit3
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
 import { JadwalUjian, Fase, Soal, TipeSoal } from '@/types/cbt';
@@ -44,6 +45,18 @@ import {
   TopikMateri,
   MataPelajaranDetail
 } from '@/lib/curriculum-data';
+
+function toDateTimeLocalString(isoOrDateStr?: string): string {
+  if (!isoOrDateStr) return new Date().toISOString().slice(0, 16);
+  try {
+    const d = new Date(isoOrDateStr);
+    if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 16);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return new Date().toISOString().slice(0, 16);
+  }
+}
 
 /**
  * Filter cerdas untuk mencocokkan butir soal dengan Jenjang & Mata Pelajaran
@@ -151,6 +164,7 @@ export default function JadwalCBTPage() {
   };
 
   // ===================== FORM STATES =====================
+  const [editingJadwalId, setEditingJadwalId] = useState<string | null>(null);
   const [judul, setJudul] = useState('');
   const [jenjangForm, setJenjangForm] = useState<JenjangPendidikan>('SMP');
   const [mapelList, setMapelList] = useState<MataPelajaranDetail[]>([]);
@@ -163,13 +177,47 @@ export default function JadwalCBTPage() {
   const [durasiMenit, setDurasiMenit] = useState<number>(60);
 
   // Waktu
-  const [waktuMulai, setWaktuMulai] = useState(new Date().toISOString().slice(0, 16));
+  const [waktuMulai, setWaktuMulai] = useState(toDateTimeLocalString(new Date().toISOString()));
   const [waktuSelesai, setWaktuSelesai] = useState(
-    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)
+    toDateTimeLocalString(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString())
   );
   const [acakSoal, setAcakSoal] = useState(true);
   const [acakOpsi, setAcakOpsi] = useState(true);
   const [kkm, setKkm] = useState(75);
+
+  const handleOpenEditModal = (j: JadwalUjian) => {
+    setEditingJadwalId(j.id);
+    setJudul(j.judul || '');
+    setJenjangForm((j.jenjang as JenjangPendidikan) || 'SMP');
+    setMapel(j.mataPelajaran || '');
+    setTopikForm(j.topik || '');
+    setTargetKelas(j.targetKelas && j.targetKelas.length > 0 ? j.targetKelas : ['Kelas 7 SMP', 'Kelas 8 SMP']);
+    setDurasiMenit(j.durasiMenit || 60);
+    setWaktuMulai(toDateTimeLocalString(j.waktuMulai));
+    setWaktuSelesai(toDateTimeLocalString(j.waktuSelesai));
+    setAcakSoal(j.acakSoal ?? true);
+    setAcakOpsi(j.acakOpsi ?? true);
+    setKkm(j.kkm || 75);
+    setSelectedSoalIds(j.soalIds || []);
+    setIsFormOpen(true);
+  };
+
+  const handleOpenCreateModal = () => {
+    setEditingJadwalId(null);
+    setJudul('');
+    setJenjangForm('SMP');
+    setMapel('Informatika');
+    setTopikForm('');
+    setTargetKelas(['Kelas 7 SMP', 'Kelas 8 SMP']);
+    setDurasiMenit(60);
+    setWaktuMulai(toDateTimeLocalString(new Date().toISOString()));
+    setWaktuSelesai(toDateTimeLocalString(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()));
+    setAcakSoal(true);
+    setAcakOpsi(true);
+    setKkm(75);
+    setSelectedSoalIds([]);
+    setIsFormOpen(true);
+  };
 
   // Selected questions from Bank Soal
   const [selectedSoalIds, setSelectedSoalIds] = useState<string[]>([]);
@@ -244,9 +292,9 @@ export default function JadwalCBTPage() {
     };
   }, [soalList, mapelQuestions, showAllMapelSoal]);
 
-  // Auto-select questions: ONLY select questions matching the active subject & jenjang!
+  // Auto-select questions: ONLY select questions matching the active subject & jenjang (only on create mode)!
   useEffect(() => {
-    if (isFormOpen && soalList.length > 0) {
+    if (!editingJadwalId && isFormOpen && soalList.length > 0) {
       const matched = soalList.filter((s) => isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel));
       // Auto-select the matched questions for this subject only
       if (matched.length > 0) {
@@ -255,7 +303,7 @@ export default function JadwalCBTPage() {
         setSelectedSoalIds([]);
       }
     }
-  }, [isFormOpen, jenjangForm, mapel, soalList]);
+  }, [editingJadwalId, isFormOpen, jenjangForm, mapel, soalList]);
 
   // Calculate total selected count and bobot
   const selectedQuestions = useMemo(() => {
@@ -311,7 +359,7 @@ export default function JadwalCBTPage() {
     }
   };
 
-  // Handle Form Submit
+  // Handle Form Submit (Create or Edit)
   const handleCreateJadwal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!judul.trim()) {
@@ -325,39 +373,74 @@ export default function JadwalCBTPage() {
 
     const calculatedFase: Fase = jenjangForm === 'SMP' ? 'Fase D (SMP)' : 'Fase E (SMA 10)';
 
-    const newJadwal: JadwalUjian = {
-      id: `cbt-${Date.now()}`,
-      judul,
-      jenjang: jenjangForm,
-      mataPelajaran: mapel,
-      topik: topikForm,
-      fase: calculatedFase,
-      targetKelas,
-      durasiMenit: Number(durasiMenit),
-      token: '',
-      tanpaToken: true,
-      waktuMulai,
-      waktuSelesai,
-      acakSoal,
-      acakOpsi,
-      status: 'SEDANG_BERLANGSUNG', // Langsung aktif agar siap disimulasikan
-      soalIds: selectedSoalIds,
-      totalSoal: selectedSoalIds.length,
-      totalBobot: totalSelectedBobot,
-      kkm,
-      pembuat: guruProfile?.namaLengkap || 'Guru Penanggung Jawab CBT',
-      guruUsername: guruProfile?.username || '',
-    };
+    if (editingJadwalId) {
+      // Mode Edit: pertahankan ID, pembuat, token, dan status sesi yang ada
+      const existing = jadwalList.find((j) => j.id === editingJadwalId);
+      const updatedJadwal: JadwalUjian = {
+        id: editingJadwalId,
+        judul,
+        jenjang: jenjangForm,
+        mataPelajaran: mapel,
+        topik: topikForm,
+        fase: calculatedFase,
+        targetKelas,
+        durasiMenit: Number(durasiMenit),
+        token: existing?.token || '',
+        tanpaToken: true,
+        waktuMulai: new Date(waktuMulai).toISOString(),
+        waktuSelesai: new Date(waktuSelesai).toISOString(),
+        acakSoal,
+        acakOpsi,
+        status: existing?.status || 'SEDANG_BERLANGSUNG',
+        soalIds: selectedSoalIds,
+        totalSoal: selectedSoalIds.length,
+        totalBobot: totalSelectedBobot,
+        kkm,
+        pembuat: existing?.pembuat || guruProfile?.namaLengkap || 'Guru Penanggung Jawab CBT',
+        guruUsername: existing?.guruUsername || guruProfile?.username || '',
+      };
 
-    addJadwal(newJadwal);
-    setIsFormOpen(false);
+      addJadwal(updatedJadwal);
+      setIsFormOpen(false);
+      setEditingJadwalId(null);
+      alert(`Perubahan Jadwal Ujian "${judul}" berhasil disimpan!`);
+    } else {
+      // Mode Buat Baru
+      const newJadwal: JadwalUjian = {
+        id: `cbt-${Date.now()}`,
+        judul,
+        jenjang: jenjangForm,
+        mataPelajaran: mapel,
+        topik: topikForm,
+        fase: calculatedFase,
+        targetKelas,
+        durasiMenit: Number(durasiMenit),
+        token: '',
+        tanpaToken: true,
+        waktuMulai: new Date(waktuMulai).toISOString(),
+        waktuSelesai: new Date(waktuSelesai).toISOString(),
+        acakSoal,
+        acakOpsi,
+        status: 'SEDANG_BERLANGSUNG',
+        soalIds: selectedSoalIds,
+        totalSoal: selectedSoalIds.length,
+        totalBobot: totalSelectedBobot,
+        kkm,
+        pembuat: guruProfile?.namaLengkap || 'Guru Penanggung Jawab CBT',
+        guruUsername: guruProfile?.username || '',
+      };
+
+      addJadwal(newJadwal);
+      setIsFormOpen(false);
+      alert(`Jadwal Ujian "${judul}" berhasil dibuat dan siap dikerjakan oleh siswa!`);
+    }
+
     // Reset form states
     setJudul('');
     setSelectedSoalIds([]);
     setFilterTipeSoal('ALL');
     setSearchQuerySoal('');
     setShowAllMapelSoal(false);
-    alert(`Jadwal Ujian "${judul}" berhasil dibuat dan siap dikerjakan oleh siswa!`);
   };
 
   return (
@@ -375,7 +458,7 @@ export default function JadwalCBTPage() {
         </div>
 
         <button
-          onClick={() => setIsFormOpen(true)}
+          onClick={handleOpenCreateModal}
           className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-blue-500/20 flex items-center gap-2 transition-all hover:scale-[1.02] self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -401,7 +484,7 @@ export default function JadwalCBTPage() {
             <div className="pt-2">
               <button
                 type="button"
-                onClick={() => setIsFormOpen(true)}
+                onClick={handleOpenCreateModal}
                 className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs sm:text-sm shadow-md inline-flex items-center gap-2 cursor-pointer transition-all"
               >
                 <Plus className="w-4 h-4" />
@@ -547,6 +630,17 @@ export default function JadwalCBTPage() {
                       </button>
                     )}
 
+                    {/* Edit Jadwal */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(jadwal)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:text-blue-600 hover:bg-blue-50 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      title="Edit pengaturan sesi jadwal, durasi, tanggal akses, atau paket soal"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Edit Jadwal</span>
+                    </button>
+
                     {/* View Submissions */}
                     <Link
                       href={`/guru/hasil?jadwalId=${jadwal.id}`}
@@ -585,14 +679,20 @@ export default function JadwalCBTPage() {
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <CalendarClock className="w-5 h-5 text-blue-600" />
-                  Konfigurasi Jadwal Ujian CBT Baru
+                  {editingJadwalId ? 'Edit Pengaturan Sesi Jadwal Ujian' : 'Konfigurasi Jadwal Ujian CBT Baru'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Lengkapi materi Kurikulum Merdeka (SMP & SMA) dan tentukan butir soal yang diujikan.
+                  {editingJadwalId
+                    ? 'Perbarui judul, durasi pengerjaan, rentang waktu akses ujian, target kelas, atau pilihan paket butir soal.'
+                    : 'Lengkapi materi Kurikulum Merdeka (SMP & SMA) dan tentukan butir soal yang diujikan.'}
                 </p>
               </div>
               <button
-                onClick={() => setIsFormOpen(false)}
+                type="button"
+                onClick={() => {
+                  setIsFormOpen(false);
+                  setEditingJadwalId(null);
+                }}
                 className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -747,6 +847,40 @@ export default function JadwalCBTPage() {
                     onChange={(e) => setKkm(Number(e.target.value))}
                     className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-bold text-emerald-600"
                   />
+                </div>
+              </div>
+
+              {/* Grid: Waktu Akses Ujian (Mulai & Selesai) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Waktu Mulai Akses Ujian *</span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={waktuMulai}
+                    onChange={(e) => setWaktuMulai(e.target.value)}
+                    required
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Waktu Selesai Akses Ujian *</span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={waktuSelesai}
+                    onChange={(e) => setWaktuSelesai(e.target.value)}
+                    required
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-medium text-slate-800 focus:ring-2 focus:ring-rose-500"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    * Mundurkan tanggal/jam ini jika ingin memperpanjang waktu ujian untuk minggu depan.
+                  </p>
                 </div>
               </div>
 
@@ -1063,7 +1197,10 @@ export default function JadwalCBTPage() {
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsFormOpen(false)}
+                  onClick={() => {
+                    setIsFormOpen(false);
+                    setEditingJadwalId(null);
+                  }}
                   className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50 cursor-pointer"
                 >
                   Batal
@@ -1078,7 +1215,10 @@ export default function JadwalCBTPage() {
                   }`}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Simpan & Rilis Jadwal Ujian {selectedSoalIds.length > 0 ? `(${selectedSoalIds.length} Soal)` : ''}</span>
+                  <span>
+                    {editingJadwalId ? 'Simpan Perubahan Jadwal' : 'Simpan & Rilis Jadwal Ujian'}{' '}
+                    {selectedSoalIds.length > 0 ? `(${selectedSoalIds.length} Soal)` : ''}
+                  </span>
                 </button>
               </div>
             </form>

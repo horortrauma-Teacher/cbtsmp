@@ -303,6 +303,12 @@ export default function StudentExamPage() {
   const [isExamSubmitted, setIsExamSubmitted] = useState(false);
   const [submittedData, setSubmittedData] = useState<any>(null);
 
+  // Resilient Submission & Anti-Loss State (Proteksi Jawaban Siswa Anti-Hilang)
+  const [isSubmittingExam, setIsSubmittingExam] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pendingHasil, setPendingHasil] = useState<HasilUjianSiswa | null>(null);
+  const [pendingResultPayload, setPendingResultPayload] = useState<any | null>(null);
+
   // Storage keys for persistence
   const answersStorageKey = `cbt_answers_${scheduleId}`;
   const timerStorageKey = `cbt_timer_${scheduleId}`;
@@ -356,10 +362,30 @@ export default function StudentExamPage() {
           localStorage.removeItem(penaltyLockStorageKey);
         }
       }
+
+      // Deteksi & Pulihkan jika ada lembar jawaban tersimpan dari sesi sebelumnya yang belum terverifikasi oleh server
+      const backupResultKey = `cbt_backup_result_${scheduleId}`;
+      const cachedBackup = localStorage.getItem(backupResultKey);
+      if (cachedBackup) {
+        try {
+          const parsed = JSON.parse(cachedBackup);
+          if (parsed && parsed.id) {
+            setPendingHasil(parsed);
+            const cachedPayload = localStorage.getItem(`cbt_backup_payload_${scheduleId}`);
+            if (cachedPayload) {
+              setPendingResultPayload(JSON.parse(cachedPayload));
+            }
+            setSubmitError(
+              "Koneksi database sempat gangguan. Lembar jawaban Anda aman tersimpan di perangkat ini. Klik di sini untuk Kirim Ulang."
+            );
+            setIsSubmitModalOpen(true);
+          }
+        } catch {}
+      }
     } catch (e) {
       console.error("Failed to load CBT state from localStorage:", e);
     }
-  }, [answersStorageKey, timerStorageKey, violationsStorageKey, penaltyLockStorageKey]);
+  }, [answersStorageKey, timerStorageKey, violationsStorageKey, penaltyLockStorageKey, scheduleId]);
 
   // 2. Online / Offline network listeners
   useEffect(() => {
@@ -730,10 +756,11 @@ export default function StudentExamPage() {
     finalizeSubmission();
   };
 
-  // Finalize Submission
-  const finalizeSubmission = () => {
-    setIsSubmitModalOpen(false);
-    setIsExamSubmitted(true);
+  // Finalize Submission (Async with Server Verification & Anti-Loss Protection)
+  const finalizeSubmission = async () => {
+    setIsSubmittingExam(true);
+    setSubmitError(null);
+    setIsSubmitModalOpen(true);
 
     let totalScore = 0;
     let maxPossibleScore = 0;
@@ -937,9 +964,6 @@ export default function StudentExamPage() {
       jawabanDetail: detailList,
     };
 
-    // Save to global store & Supabase
-    addHasilUjian(newHasil);
-
     const resultPayload = {
       scheduleId: examSchedule.id,
       studentName: studentInfo.name,
@@ -953,19 +977,117 @@ export default function StudentExamPage() {
       totalQuestions: questions.length,
     };
 
-    setSubmittedData(resultPayload);
+    setPendingHasil(newHasil);
+    setPendingResultPayload(resultPayload);
 
-    // Clear local cache for clean test cleanup
-    localStorage.removeItem(answersStorageKey);
-    localStorage.removeItem(timerStorageKey);
-    localStorage.removeItem(penaltyLockStorageKey);
+    // 1. Amankan cadangan ke LocalStorage SEBELUM mengirim ke server (Proteksi Anti-Hilang)
+    try {
+      localStorage.setItem(`cbt_backup_result_${scheduleId}`, JSON.stringify(newHasil));
+      localStorage.setItem(`cbt_backup_payload_${scheduleId}`, JSON.stringify(resultPayload));
+      localStorage.setItem(`cbt_backup_answers_${scheduleId}`, JSON.stringify(answers));
+    } catch (e) {
+      console.warn("Gagal menyimpan cadangan lokal:", e);
+    }
 
-    // Sync finished status with live proctoring
-    syncProgressWithServer({
-      status: "SELESAI",
-      isLocked: false,
-      lockRemainingSeconds: 0,
-    });
+    // 2. Hubungi server Supabase & API cbt sync untuk verifikasi penyimpanan
+    try {
+      const res = await addHasilUjian(newHasil);
+
+      if (res && res.success) {
+        // SUKSES TERVERIFIKASI TERSIMPAN DI DATABASE:
+        // HANYA DI SINI BROWSER MENGHAPUS CACHE JAWABAN SISWA
+        localStorage.removeItem(answersStorageKey);
+        localStorage.removeItem(timerStorageKey);
+        localStorage.removeItem(penaltyLockStorageKey);
+        localStorage.removeItem(`cbt_backup_result_${scheduleId}`);
+        localStorage.removeItem(`cbt_backup_payload_${scheduleId}`);
+        localStorage.removeItem(`cbt_backup_answers_${scheduleId}`);
+
+        setSubmittedData(resultPayload);
+        setIsExamSubmitted(true);
+        setIsSubmittingExam(false);
+        setIsSubmitModalOpen(false);
+
+        // Sync finished status with live proctoring
+        syncProgressWithServer({
+          status: "SELESAI",
+          isLocked: false,
+          lockRemainingSeconds: 0,
+        });
+      } else {
+        // DATABASE GANGGUAN / TIMEOUT: JANGAN HAPUS JAWABAN!
+        setIsSubmittingExam(false);
+        setSubmitError(
+          res?.message ||
+            "Koneksi database sedang gangguan atau waktu tunggu habis. Jawaban Anda aman di perangkat ini. Klik di sini untuk Kirim Ulang."
+        );
+      }
+    } catch (err: any) {
+      // JIKA NETWORK OFFLINE / CRASH: JANGAN HAPUS JAWABAN!
+      setIsSubmittingExam(false);
+      setSubmitError(
+        err?.message ||
+          "Koneksi database sedang gangguan. Jawaban Anda aman di perangkat ini. Klik di sini untuk Kirim Ulang."
+      );
+    }
+  };
+
+  // Handler Kirim Ulang jika sebelumnya database gangguan / timeout
+  const handleRetrySubmit = async () => {
+    if (!pendingHasil) {
+      finalizeSubmission();
+      return;
+    }
+
+    setIsSubmittingExam(true);
+    setSubmitError(null);
+
+    try {
+      const res = await addHasilUjian(pendingHasil);
+      if (res && res.success) {
+        // SUKSES TERVERIFIKASI: Hapus cache jawaban
+        localStorage.removeItem(answersStorageKey);
+        localStorage.removeItem(timerStorageKey);
+        localStorage.removeItem(penaltyLockStorageKey);
+        localStorage.removeItem(`cbt_backup_result_${scheduleId}`);
+        localStorage.removeItem(`cbt_backup_payload_${scheduleId}`);
+        localStorage.removeItem(`cbt_backup_answers_${scheduleId}`);
+
+        setSubmittedData(
+          pendingResultPayload || {
+            scheduleId: examSchedule.id,
+            studentName: studentInfo.name,
+            studentNisn: studentInfo.nisn,
+            submittedAt: new Date().toLocaleString("id-ID"),
+            answers,
+            scaledScore: pendingHasil.nilaiAkhir,
+            isTuntas: pendingHasil.statusKelulusan === "TUNTAS",
+            totalQuestions: questions.length,
+          }
+        );
+        setIsExamSubmitted(true);
+        setIsSubmittingExam(false);
+        setIsSubmitModalOpen(false);
+
+        syncProgressWithServer({
+          status: "SELESAI",
+          isLocked: false,
+          lockRemainingSeconds: 0,
+        });
+      } else {
+        setIsSubmittingExam(false);
+        setSubmitError(
+          res?.message ||
+            "Koneksi database sedang gangguan atau waktu tunggu habis. Jawaban Anda aman di perangkat ini. Klik di sini untuk Kirim Ulang."
+        );
+      }
+    } catch (err: any) {
+      setIsSubmittingExam(false);
+      setSubmitError(
+        err?.message ||
+          "Koneksi database sedang gangguan. Jawaban Anda aman di perangkat ini. Klik di sini untuk Kirim Ulang."
+      );
+    }
   };
 
   // Current active question
@@ -1299,6 +1421,23 @@ export default function StudentExamPage() {
         totalQuestions={questions.length}
       />
 
+      {/* Warning Banner Proteksi Jawaban jika Database Gangguan */}
+      {submitError && !isExamSubmitted && (
+        <div className="bg-gradient-to-r from-amber-600 to-rose-600 text-white px-4 py-2.5 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 shadow-md z-40 sticky top-0">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 shrink-0 animate-bounce text-amber-200" />
+            <span>Koneksi database sedang gangguan. Jawaban Anda aman di perangkat ini.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSubmitModalOpen(true)}
+            className="bg-white text-rose-900 font-bold px-3 py-1 rounded-lg text-xs shadow-xs hover:bg-amber-50 cursor-pointer transition shrink-0"
+          >
+            Klik di Sini untuk Kirim Ulang
+          </button>
+        </div>
+      )}
+
       {/* 2. Main Exam Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 flex gap-4 overflow-hidden h-[calc(100vh-4.25rem)]">
         {/* Left / Center Work Area: Split-screen or Full Width */}
@@ -1446,14 +1585,19 @@ export default function StudentExamPage() {
         />
       </main>
 
-      {/* 4. Confirmation Submit Modal */}
+      {/* 4. Confirmation Submit Modal (Resilient & Anti-Loss Protected) */}
       <ExamSubmitModal
         isOpen={isSubmitModalOpen}
-        onClose={() => setIsSubmitModalOpen(false)}
+        onClose={() => {
+          if (!isSubmittingExam) setIsSubmitModalOpen(false);
+        }}
         onConfirmSubmit={finalizeSubmission}
         soalList={questions}
         answers={answers}
         remainingSeconds={remainingSeconds}
+        isSubmitting={isSubmittingExam}
+        submitError={submitError}
+        onRetrySubmit={handleRetrySubmit}
       />
 
       {/* 5. Anti-Cheat: 2-Minute Lock Penalty Overlay (Triggered by switching tab / opening new tab) */}

@@ -311,14 +311,46 @@ export function useCBTData() {
     deleteJadwalFromDb(id).catch(() => {});
   };
 
-  const addHasilUjian = (newHasil: HasilUjianSiswa) => {
+  const addHasilUjian = async (newHasil: HasilUjianSiswa): Promise<{ success: boolean; message?: string }> => {
+    // 1. Simpan ke local state memori
     setRawHasilList((prev) => [newHasil, ...prev.filter((h) => h.id !== newHasil.id)]);
-    saveHasilToDb(newHasil).catch(() => {});
-    fetch('/api/cbt/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hasilList: [newHasil] }),
-    }).catch(() => {});
+
+    // 2. Simpan cadangan ke localStorage
+    try {
+      const existingRaw = localStorage.getItem(STORAGE_KEYS.HASIL);
+      const list = existingRaw ? JSON.parse(existingRaw) : [];
+      const filtered = list.filter((h: any) => h.id !== newHasil.id);
+      localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify([newHasil, ...filtered]));
+      localStorage.setItem('cbt_hasil_list', JSON.stringify([newHasil, ...filtered]));
+    } catch (e) {
+      console.warn('[store] localStorage hasil backup warning:', e);
+    }
+
+    // 3. Kirim ke Supabase dengan status verifikasi
+    const dbRes = await saveHasilToDb(newHasil);
+
+    // 4. Cadangan via server sync API
+    let apiSuccess = false;
+    try {
+      const syncRes = await fetch('/api/cbt/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hasilList: [newHasil] }),
+      });
+      if (syncRes.ok) {
+        apiSuccess = true;
+      }
+    } catch {}
+
+    // Jika Supabase sukses ATAU server API berhasil menyimpan
+    if (dbRes.success || apiSuccess) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      message: dbRes.error || 'Koneksi database sedang gangguan atau waktu tunggu habis.',
+    };
   };
 
   const deleteHasil = (id: string) => {

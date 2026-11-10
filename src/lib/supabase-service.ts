@@ -749,7 +749,7 @@ export async function fetchHasilFromDb(guruUsername?: string): Promise<HasilUjia
   }
 }
 
-export async function saveHasilToDb(hasil: HasilUjianSiswa): Promise<boolean> {
+export async function saveHasilToDb(hasil: HasilUjianSiswa): Promise<{ success: boolean; error?: string }> {
   try {
     const payload = {
       id: hasil.id,
@@ -765,10 +765,24 @@ export async function saveHasilToDb(hasil: HasilUjianSiswa): Promise<boolean> {
       breakdown: hasil.breakdown,
       jawaban_detail: hasil.jawabanDetail,
     };
-    const { error } = await db.from('hasil_ujian').upsert(payload);
-    return !error;
-  } catch {
-    return false;
+
+    // Timeout 7 detik agar tidak menggantung tanpa batas jika Supabase sedang paused / offline
+    const timeoutPromise = new Promise<{ error: any }>((_, reject) => {
+      setTimeout(() => reject(new Error('Koneksi ke database server timeout (melebihi batas 7 detik).')), 7000);
+    });
+
+    const upsertPromise = db.from('hasil_ujian').upsert(payload);
+    const res: any = await Promise.race([upsertPromise, timeoutPromise]);
+
+    if (res?.error) {
+      return { success: false, error: res.error.message || 'Gagal menyimpan ke database Supabase.' };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Database server tidak dapat dihubungi atau waktu tunggu habis.',
+    };
   }
 }
 

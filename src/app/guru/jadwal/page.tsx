@@ -33,7 +33,8 @@ import {
   Search,
   Filter,
   Radio,
-  Edit3
+  Edit3,
+  ShieldAlert
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
 import { JadwalUjian, Fase, Soal, TipeSoal } from '@/types/cbt';
@@ -115,6 +116,36 @@ function isSoalMatchingMapelAndJenjang(
       return true;
     }
   }
+
+  return false;
+}
+
+/**
+ * Filter cerdas untuk mencocokkan butir soal dengan Topik Pembelajaran yang dipilih
+ */
+function isSoalMatchingTopic(soal: Soal, targetTopic: string): boolean {
+  if (!targetTopic || targetTopic.trim() === '' || targetTopic === 'ALL') {
+    return true;
+  }
+  if (!soal.topik || soal.topik.trim() === '') {
+    return false;
+  }
+
+  const sTopik = soal.topik.trim().toLowerCase();
+  const tTopik = targetTopic.trim().toLowerCase();
+
+  // 1. Exact match (case insensitive)
+  if (sTopik === tTopik) return true;
+
+  // 2. Main concept match (sebelum tanda kurung jika ada)
+  // Contoh: "Berpikir Komputasional (Decomposisi, Pola, Abstraksi, Algoritma)" -> "Berpikir Komputasional"
+  const sMain = sTopik.split('(')[0].trim();
+  const tMain = tTopik.split('(')[0].trim();
+
+  if (sMain === tMain && sMain.length >= 3) return true;
+
+  // 3. Substring match
+  if (sTopik.includes(tMain) || tTopik.includes(sMain)) return true;
 
   return false;
 }
@@ -216,6 +247,8 @@ export default function JadwalCBTPage() {
     setAcakOpsi(true);
     setKkm(75);
     setSelectedSoalIds([]);
+    setShowAllMapelSoal(false);
+    setIncludeReleasedSoal(false);
     setIsFormOpen(true);
   };
 
@@ -226,6 +259,7 @@ export default function JadwalCBTPage() {
   const [filterTipeSoal, setFilterTipeSoal] = useState<'ALL' | TipeSoal>('ALL');
   const [searchQuerySoal, setSearchQuerySoal] = useState<string>('');
   const [showAllMapelSoal, setShowAllMapelSoal] = useState<boolean>(false);
+  const [includeReleasedSoal, setIncludeReleasedSoal] = useState<boolean>(false);
 
   // Update mapel list when jenjang changes
   useEffect(() => {
@@ -254,15 +288,68 @@ export default function JadwalCBTPage() {
     }
   }, [jenjangForm, mapel]);
 
-  // Questions strictly matching the active Subject and Level
-  const mapelQuestions = useMemo(() => {
-    return soalList.filter((s) => isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel));
-  }, [soalList, jenjangForm, mapel]);
+  // Set ID butir soal yang SUDAH PERNAH DIRILIS di jadwal ujian mana pun
+  const releasedSoalIds = useMemo(() => {
+    const set = new Set<string>();
+    const pool = (allJadwalList && allJadwalList.length > 0) ? allJadwalList : jadwalList;
+    pool.forEach((j) => {
+      // Jika sedang dalam mode edit suatu jadwal, jangan anggap soal di jadwal ini
+      // sebagai "terpakai di jadwal lain" agar tetap tampil & terpilih
+      if (editingJadwalId && j.id === editingJadwalId) return;
+      if (Array.isArray(j.soalIds)) {
+        j.soalIds.forEach((id) => {
+          if (id) set.add(id);
+        });
+      }
+    });
+    return set;
+  }, [allJadwalList, jadwalList, editingJadwalId]);
+
+  // Soal yang memenuhi syarat: sesuai Mapel & Jenjang, sesuai Topik Form aktif, dan BELUM PERNAH DIRILIS
+  const eligibleQuestions = useMemo(() => {
+    return soalList.filter((s) => {
+      // 1. Cek kecocokan Mapel & Jenjang
+      if (!showAllMapelSoal && !isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel)) {
+        return false;
+      }
+
+      // 2. Cek kecocokan Topik Pembelajaran yang dipilih (HANYA soal yang sesuai topik)
+      if (!showAllMapelSoal && !isSoalMatchingTopic(s, topikForm)) {
+        return false;
+      }
+
+      // 3. JANGAN MUNCULKAN SOAL YANG SUDAH PERNAH DIRILIS (kecuali opsi diaktifkan secara eksplisit)
+      if (!includeReleasedSoal && releasedSoalIds.has(s.id)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    soalList,
+    showAllMapelSoal,
+    jenjangForm,
+    mapel,
+    topikForm,
+    includeReleasedSoal,
+    releasedSoalIds,
+  ]);
+
+  // Total soal pada topik ini untuk transparansi dan indikator
+  const totalTopicQuestions = useMemo(() => {
+    return soalList.filter((s) =>
+      isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel) &&
+      isSoalMatchingTopic(s, topikForm)
+    );
+  }, [soalList, jenjangForm, mapel, topikForm]);
+
+  const alreadyReleasedCountInThisTopic = useMemo(() => {
+    return totalTopicQuestions.filter((s) => releasedSoalIds.has(s.id)).length;
+  }, [totalTopicQuestions, releasedSoalIds]);
 
   // Filtered questions displayed in picker
   const displayedPickerQuestions = useMemo(() => {
-    const baseList = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
-    return baseList.filter((s) => {
+    return eligibleQuestions.filter((s) => {
       // Type filter
       if (filterTipeSoal !== 'ALL' && s.tipeSoal !== filterTipeSoal) {
         return false;
@@ -278,32 +365,29 @@ export default function JadwalCBTPage() {
       }
       return true;
     });
-  }, [soalList, mapelQuestions, showAllMapelSoal, filterTipeSoal, searchQuerySoal]);
+  }, [eligibleQuestions, filterTipeSoal, searchQuerySoal]);
 
   // Type counts based on current active scope
   const typeCounts = useMemo(() => {
-    const baseList = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
     return {
-      ALL: baseList.length,
-      PG: baseList.filter((s) => s.tipeSoal === 'PG').length,
-      PGK: baseList.filter((s) => s.tipeSoal === 'PGK').length,
-      MENJODOHKAN: baseList.filter((s) => s.tipeSoal === 'MENJODOHKAN').length,
-      URAIAN: baseList.filter((s) => s.tipeSoal === 'URAIAN').length,
+      ALL: eligibleQuestions.length,
+      PG: eligibleQuestions.filter((s) => s.tipeSoal === 'PG').length,
+      PGK: eligibleQuestions.filter((s) => s.tipeSoal === 'PGK').length,
+      MENJODOHKAN: eligibleQuestions.filter((s) => s.tipeSoal === 'MENJODOHKAN').length,
+      URAIAN: eligibleQuestions.filter((s) => s.tipeSoal === 'URAIAN').length,
     };
-  }, [soalList, mapelQuestions, showAllMapelSoal]);
+  }, [eligibleQuestions]);
 
-  // Auto-select questions: ONLY select questions matching the active subject & jenjang (only on create mode)!
+  // Auto-select questions: HANYA pilih butir soal yang sesuai topik aktif DAN belum pernah dirilis!
   useEffect(() => {
-    if (!editingJadwalId && isFormOpen && soalList.length > 0) {
-      const matched = soalList.filter((s) => isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel));
-      // Auto-select the matched questions for this subject only
-      if (matched.length > 0) {
-        setSelectedSoalIds(matched.map((s) => s.id));
+    if (!editingJadwalId && isFormOpen) {
+      if (eligibleQuestions.length > 0) {
+        setSelectedSoalIds(eligibleQuestions.map((s) => s.id));
       } else {
         setSelectedSoalIds([]);
       }
     }
-  }, [editingJadwalId, isFormOpen, jenjangForm, mapel, soalList]);
+  }, [editingJadwalId, isFormOpen, eligibleQuestions]);
 
   // Calculate total selected count and bobot
   const selectedQuestions = useMemo(() => {
@@ -334,14 +418,12 @@ export default function JadwalCBTPage() {
 
   // Quick preset actions for teacher convenience
   const handleSelectOnlyPgAndEssay = () => {
-    const targetPool = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
-    const pgAndEssay = targetPool.filter((s) => s.tipeSoal === 'PG' || s.tipeSoal === 'URAIAN');
+    const pgAndEssay = eligibleQuestions.filter((s) => s.tipeSoal === 'PG' || s.tipeSoal === 'URAIAN');
     setSelectedSoalIds(pgAndEssay.map((s) => s.id));
   };
 
-  const handleSelectAllMapel = () => {
-    const targetPool = showAllMapelSoal ? soalList : (mapelQuestions.length > 0 ? mapelQuestions : soalList);
-    setSelectedSoalIds(targetPool.map((s) => s.id));
+  const handleSelectAllTopic = () => {
+    setSelectedSoalIds(eligibleQuestions.map((s) => s.id));
   };
 
   const handleDeselectAll = () => {
@@ -973,10 +1055,10 @@ export default function JadwalCBTPage() {
 
                     <button
                       type="button"
-                      onClick={handleSelectAllMapel}
+                      onClick={handleSelectAllTopic}
                       className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-semibold text-xs transition-colors cursor-pointer"
                     >
-                      Pilih Semua Soal Mapel Ini
+                      Pilih Semua Soal Topik Ini
                     </button>
 
                     <button
@@ -986,6 +1068,45 @@ export default function JadwalCBTPage() {
                     >
                       Batal Pilih
                     </button>
+                  </div>
+                </div>
+
+                {/* Banner Filter Topik & Status Soal Dirilis */}
+                <div className="p-3 rounded-xl bg-blue-50/90 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      Filter Topik:
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-xs">
+                      {topikForm || mapel}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      {eligibleQuestions.length} Soal Belum Dirilis
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    {alreadyReleasedCountInThisTopic > 0 ? (
+                      <span className="flex items-center gap-1 text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        {alreadyReleasedCountInThisTopic} soal sudah pernah dirilis disembunyikan
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 text-[10px]">
+                        Semua soal pada topik ini siap digunakan
+                      </span>
+                    )}
+
+                    <label className="flex items-center gap-1 cursor-pointer text-slate-600 hover:text-slate-900 select-none ml-auto">
+                      <input
+                        type="checkbox"
+                        checked={includeReleasedSoal}
+                        onChange={(e) => setIncludeReleasedSoal(e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                      />
+                      <span>Tampilkan yang sudah dirilis</span>
+                    </label>
                   </div>
                 </div>
 
@@ -1072,7 +1193,7 @@ export default function JadwalCBTPage() {
                       onChange={(e) => setShowAllMapelSoal(e.target.checked)}
                       className="w-3.5 h-3.5 text-blue-600 rounded"
                     />
-                    <span>Tampilkan juga seluruh soal dari mapel lain ({soalList.length} butir)</span>
+                    <span>Tampilkan juga seluruh soal dari topik / mapel lain ({soalList.length} butir)</span>
                   </label>
                   <span>Menampilkan {displayedPickerQuestions.length} butir soal</span>
                 </div>
@@ -1095,30 +1216,34 @@ export default function JadwalCBTPage() {
                       <span>Ke Bank Soal & Generate Soal AI</span>
                     </Link>
                   </div>
-                ) : mapelQuestions.length === 0 && !showAllMapelSoal ? (
-                  <div className="p-5 rounded-2xl bg-blue-50/70 border border-blue-200 text-center space-y-2">
+                ) : eligibleQuestions.length === 0 && !showAllMapelSoal ? (
+                  <div className="p-6 rounded-2xl bg-blue-50/70 border border-blue-200 text-center space-y-2">
                     <BookOpen className="w-8 h-8 text-blue-600 mx-auto" />
                     <p className="text-xs font-bold text-slate-900">
-                      Belum ada butir soal spesifik untuk Mata Pelajaran "{mapel}" ({jenjangForm})
+                      Belum ada butir soal baru untuk Topik &ldquo;{topikForm || mapel}&rdquo; ({jenjangForm})
                     </p>
                     <p className="text-[11px] text-slate-600 max-w-md mx-auto">
-                      Di Bank Soal Anda saat ini terdapat {soalList.length} butir soal dari mata pelajaran lain. Anda dapat membuat soal baru untuk {mapel} atau menampilkan seluruh bank soal.
+                      {alreadyReleasedCountInThisTopic > 0
+                        ? `Terdapat ${alreadyReleasedCountInThisTopic} butir soal pada topik ini yang sudah pernah dirilis di jadwal ujian lain. Sistem secara otomatis menyaringnya agar soal tidak berulang ke siswa.`
+                        : `Belum ada butir soal di Bank Soal untuk topik ini. Silakan buat atau generate soal AI untuk topik ini terlebih dahulu.`}
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                       <Link
                         href={`/guru/bank-soal?tab=generator`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 shadow-xs"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
-                        <span>+ Buat / Generate Soal {mapel}</span>
+                        <span>+ Buat / Generate Soal AI untuk Topik Ini</span>
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() => setShowAllMapelSoal(true)}
-                        className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-50 cursor-pointer"
-                      >
-                        Tampilkan Seluruh Bank Soal ({soalList.length})
-                      </button>
+                      {alreadyReleasedCountInThisTopic > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setIncludeReleasedSoal(true)}
+                          className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-lg text-xs font-semibold hover:bg-amber-50 cursor-pointer"
+                        >
+                          Tampilkan {alreadyReleasedCountInThisTopic} Soal yang Sudah Dirilis
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : displayedPickerQuestions.length === 0 ? (
@@ -1176,6 +1301,11 @@ export default function JadwalCBTPage() {
                               {s.topik && (
                                 <span className="text-purple-700 text-[10px] font-medium truncate max-w-[200px]">
                                   ({s.topik})
+                                </span>
+                              )}
+                              {releasedSoalIds.has(s.id) && (
+                                <span className="bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded text-[10px] border border-rose-300">
+                                  Sudah Pernah Dirilis
                                 </span>
                               )}
                             </div>

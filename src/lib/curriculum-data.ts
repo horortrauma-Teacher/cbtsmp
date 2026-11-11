@@ -126,7 +126,9 @@ export const KURIKULUM_DATA: Record<JenjangPendidikan, KurikulumJenjang> = {
           { id: 'inf-smp-03', nama: 'Sistem Komputer (Hardware, Software & Brainware)', deskripsi: 'Interaksi komponen CPU, RAM, memori penyimpanan, dan sistem operasi' },
           { id: 'inf-smp-04', nama: 'Jaringan Komputer, Topologi & Keamanan Internet', deskripsi: 'Internet vs intranet, enkripsi, bahaya phishing, malware, dan etika digital' },
           { id: 'inf-smp-05', nama: 'Analisis Data & Visualisasi Lembar Kerja', deskripsi: 'Penggunaan rumus SUM, AVERAGE, IF, VLOOKUP, dan grafik tren data' },
-          { id: 'inf-smp-06', nama: 'Algoritma Pemrograman Visual (Scratch / Block-based)', deskripsi: 'Struktur sekuensial, perulangan (loop), kondisi logika if-else, dan variabel' }
+          { id: 'inf-smp-06', nama: 'Algoritma Pemrograman Visual (Scratch / Block-based)', deskripsi: 'Struktur sekuensial, perulangan (loop), kondisi logika if-else, dan variabel' },
+          { id: 'inf-smp-07', nama: 'Membedakan Fakta dan Opini', deskripsi: 'Literasi informasi digital, verifikasi kebenaran berita, identifikasi disinformasi/hoaks, dan berpikir kritis di ruang siber' },
+          { id: 'inf-smp-08', nama: 'Ekosistem Media Pers Digital', deskripsi: 'Jurnalistik siber, etika media digital, peran pers resmi vs media sosial, algoritma kurasi berita, dan Undang-Undang ITE' }
         ]
       },
       {
@@ -346,7 +348,9 @@ export const KURIKULUM_DATA: Record<JenjangPendidikan, KurikulumJenjang> = {
           { id: 'inf-sma-03', nama: 'Pemrograman Prosedural & Berorientasi Objek (Python / C++)', deskripsi: 'Variabel bertipe, percabangan, loop, fungsi modular, class, inheritance, dan encapsulation' },
           { id: 'inf-sma-04', nama: 'Jaringan Komputer: Model OSI, Protokol TCP/IP & Keamanan Siber', deskripsi: '7 layer OSI, subnetting IP address, routing, firewall, SSL/TLS, dan pencegahan serangan siber' },
           { id: 'inf-sma-05', nama: 'Pengolahan Big Data, Data Science & Visualisasi Interaktif', deskripsi: 'ETL data, pembersihan dataset, visualisasi korelasi heatmap, dan regresi linier sederhana' },
-          { id: 'inf-sma-06', nama: 'Kecerdasan Buatan (Artificial Intelligence) & Dampak Sosial Informatika', deskripsi: 'Machine Learning, etika AI generative, privasi data (UU PDP), dan hak cipta kekayaan intelektual' }
+          { id: 'inf-sma-06', nama: 'Kecerdasan Buatan (Artificial Intelligence) & Dampak Sosial Informatika', deskripsi: 'Machine Learning, etika AI generative, privasi data (UU PDP), dan hak cipta kekayaan intelektual' },
+          { id: 'inf-sma-07', nama: 'Membedakan Fakta dan Opini', deskripsi: 'Analisis kritis narasi digital, validasi fakta berbasis sumber primer, deteksi bias informasi, dan rekayasa disinformasi' },
+          { id: 'inf-sma-08', nama: 'Ekosistem Media Pers Digital', deskripsi: 'Industri media siber, regulasi UU Pers & UU ITE, etika jurnalistik digital, platform distribusi berita, dan kedaulatan informasi' }
         ]
       },
       {

@@ -14,6 +14,7 @@ import {
   HelpCircle,
   GraduationCap,
   ArrowRight,
+  ArrowLeft,
   Check,
   RotateCw,
   FileText,
@@ -44,13 +45,15 @@ interface AIGeneratorModalProps {
   onClose: () => void;
   onSaveSoalList: (soalList: Soal[]) => void;
   guruProfile?: GuruProfile | null;
+  inlineMode?: boolean;
 }
 
 export function AIGeneratorModal({
   isOpen,
   onClose,
   onSaveSoalList,
-  guruProfile
+  guruProfile,
+  inlineMode = false
 }: AIGeneratorModalProps) {
   // Jenjang & Selection states
   const [jenjang, setJenjang] = useState<JenjangPendidikan>('SMP');
@@ -327,35 +330,46 @@ export function AIGeneratorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
-      <div className="bg-white rounded-3xl max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className={inlineMode ? "w-full space-y-6" : "fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5"}>
+      <div className={`bg-white rounded-3xl w-full border border-slate-200 overflow-hidden shadow-2xl animate-in fade-in duration-200 flex flex-col ${inlineMode ? 'border-2 max-w-full shadow-md' : 'max-w-5xl max-h-[92vh]'}`}>
         
-        {/* ================= MODAL HEADER ================= */}
-        <div className="p-5 sm:p-6 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center text-amber-300 shadow-inner border border-white/20">
-              <Sparkles className="w-6 h-6 animate-pulse" />
+        {/* ================= MODAL / SUB-HALAMAN HEADER ================= */}
+        <div className="p-6 sm:p-8 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center text-amber-300 shadow-inner border border-white/20 shrink-0">
+              <Sparkles className="w-7 h-7 sm:w-8 sm:h-8 animate-pulse" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                  AI Question Generator
-                </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-amber-950 uppercase tracking-wide">
-                  Gemini 3.1 & Dokumen Guru
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-400 text-amber-950 uppercase tracking-wide">
+                  {inlineMode ? 'Sub-Bagian AI Generator' : 'Gemini 3.1 & Dokumen Guru'}
                 </span>
+                <span className="text-xs text-indigo-200 hidden sm:inline">Kurikulum Merdeka</span>
               </div>
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                AI Question Generator {inlineMode ? '(Sub-Halaman)' : ''}
+              </h2>
               <p className="text-xs sm:text-sm text-blue-100 mt-0.5">
-                Generate otomatis butir soal AKM & HOTS Kurikulum Merdeka (Bebas Halusinasi dengan Web Grounding & Upload Dokumen)
+                Generate otomatis butir soal AKM & HOTS Kurikulum Merdeka (Bebas Halusinasi dengan Web Grounding & Upload Dokumen Guru).
               </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors border border-white/10"
+            className={`px-5 py-3 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-extrabold text-sm border border-white/20 flex items-center gap-2 cursor-pointer transition-all self-start sm:self-auto hover:scale-[1.02] ${
+              !inlineMode ? 'w-10 h-10 !p-0 !rounded-full !justify-center' : ''
+            }`}
           >
-            <X className="w-5 h-5" />
+            {inlineMode ? (
+              <>
+                <ArrowLeft className="w-4 h-4" />
+                <span>Kembali ke Bank Soal</span>
+              </>
+            ) : (
+              <X className="w-5 h-5" />
+            )}
           </button>
         </div>
 

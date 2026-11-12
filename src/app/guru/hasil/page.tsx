@@ -28,6 +28,7 @@ import {
   RotateCcw,
   Radio,
   Trash2,
+  AlertCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useCBTData } from '@/lib/store';
@@ -58,7 +59,16 @@ function HasilNilaiContent() {
   // Active Schedule Details (if selected)
   const currentJadwal = activeJadwalSource.find((j) => j.id === selectedJadwalId);
 
-  // Filtered List with automatic on-the-fly healing
+  // Batas KKM Fleksibel (bisa diatur langsung oleh guru tanpa reload)
+  const [customKkm, setCustomKkm] = useState<number>(75);
+
+  useEffect(() => {
+    if (currentJadwal?.kkm) {
+      setCustomKkm(currentJadwal.kkm);
+    }
+  }, [currentJadwal]);
+
+  // Filtered List with automatic on-the-fly healing and dynamic KKM evaluation
   const filteredHasil = useMemo(() => {
     const rawList = activeHasilSource.filter((item) => {
       const matchJadwal = selectedJadwalId === 'ALL' || item.jadwalId === selectedJadwalId;
@@ -71,9 +81,15 @@ function HasilNilaiContent() {
       return matchJadwal && matchQuery && matchKelas && matchStatus;
     });
 
-    const { list: healedList } = autoHealHasilList(rawList, currentJadwal?.kkm || 75);
-    return healedList;
-  }, [activeHasilSource, selectedJadwalId, searchQuery, selectedKelas, selectedStatus, currentJadwal]);
+    const { list: healedList } = autoHealHasilList(rawList, customKkm);
+    return healedList.map((item) => {
+      const isPass = item.nilaiAkhir >= customKkm;
+      return {
+        ...item,
+        statusKelulusan: (isPass ? 'TUNTAS' : 'BELUM_TUNTAS') as 'TUNTAS' | 'BELUM_TUNTAS',
+      };
+    });
+  }, [activeHasilSource, selectedJadwalId, searchQuery, selectedKelas, selectedStatus, customKkm]);
 
   // Analytics Computations
   const totalCount = filteredHasil.length;
@@ -409,7 +425,7 @@ function HasilNilaiContent() {
           <div>
             <span className="text-xs font-bold text-slate-500 uppercase">Rata-Rata Kelas</span>
             <div className="text-2xl font-black text-slate-900">{averageScore}</div>
-            <span className="text-[11px] text-slate-500 font-medium">KKM Standar: 75</span>
+            <span className="text-[11px] text-slate-500 font-medium">KKM Aktif: {customKkm}</span>
           </div>
         </div>
 
@@ -501,7 +517,7 @@ function HasilNilaiContent() {
         </div>
 
         {/* Search & Sub-filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -537,10 +553,28 @@ function HasilNilaiContent() {
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="w-full p-2 rounded-lg border border-slate-300 bg-slate-50 text-slate-700"
             >
-              <option value="ALL">Semua Status Ketuntasan</option>
-              <option value="TUNTAS">Tuntas (Nilai &ge; 75)</option>
-              <option value="BELUM_TUNTAS">Belum Tuntas (Nilai &lt; 75)</option>
+              <option value="ALL">Semua Capaian KKM</option>
+              <option value="TUNTAS">Tuntas KKM (Nilai &ge; {customKkm})</option>
+              <option value="BELUM_TUNTAS">Perlu Remedial (Nilai &lt; {customKkm})</option>
             </select>
+          </div>
+
+          {/* Pengaturan KKM Fleksibel (Real-Time) */}
+          <div className="flex items-center justify-between gap-2 bg-blue-50/80 p-1.5 px-3 rounded-lg border border-blue-200">
+            <span className="text-[11px] font-bold text-blue-900 whitespace-nowrap">
+              Batas KKM:
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min="10"
+                max="100"
+                value={customKkm}
+                onChange={(e) => setCustomKkm(Number(e.target.value) || 75)}
+                className="w-14 p-1 text-center font-black text-blue-700 bg-white rounded border border-blue-300 focus:ring-1 focus:ring-blue-500 text-xs"
+              />
+              <span className="text-[10px] text-slate-500 font-semibold">Poin</span>
+            </div>
           </div>
         </div>
       </div>
@@ -555,7 +589,8 @@ function HasilNilaiContent() {
                 <th className="px-4 py-3.5">Kelas / Rombel</th>
                 <th className="px-4 py-3.5">Waktu Submit</th>
                 <th className="px-4 py-3.5 text-center">Nilai Akhir</th>
-                <th className="px-4 py-3.5 text-center">Status</th>
+                <th className="px-4 py-3.5 text-center">Status Ujian</th>
+                <th className="px-4 py-3.5 text-center">Capaian KKM ({customKkm})</th>
                 <th className="px-4 py-3.5">Rincian Skor Per Butir</th>
                 <th className="px-4 py-3.5 text-center">HOTS Mastery</th>
                 <th className="px-4 py-3.5 text-right">Aksi</th>
@@ -564,7 +599,7 @@ function HasilNilaiContent() {
             <tbody className="divide-y divide-slate-100">
               {filteredHasil.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-500">
+                  <td colSpan={9} className="p-12 text-center text-slate-500">
                     <div className="max-w-md mx-auto space-y-3">
                       <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                         <Award className="w-6 h-6" />
@@ -607,28 +642,41 @@ function HasilNilaiContent() {
                       <td className="px-4 py-3.5 text-center">
                         <span
                           className={`text-base font-black ${
-                            isTuntas ? 'text-emerald-600' : 'text-rose-600'
+                            isTuntas ? 'text-emerald-600' : 'text-amber-600'
                           }`}
                         >
                           {item.nilaiAkhir}
                         </span>
                       </td>
 
-                      {/* Status */}
+                      {/* Status Ujian (Siswa sudah selesai mengumpulkan) */}
+                      <td className="px-4 py-3.5 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Selesai</span>
+                        </span>
+                      </td>
+
+                      {/* Capaian Nilai KKM */}
                       <td className="px-4 py-3.5 text-center">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold ${
                             isTuntas
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
+                              : 'bg-amber-50 text-amber-800 border border-amber-300'
                           }`}
                         >
                           {isTuntas ? (
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span>Tuntas KKM</span>
+                            </>
                           ) : (
-                            <XCircle className="w-3 h-3 text-rose-600" />
+                            <>
+                              <AlertCircle className="w-3 h-3 text-amber-600" />
+                              <span>Remedial (&lt;{customKkm})</span>
+                            </>
                           )}
-                          {item.statusKelulusan}
                         </span>
                       </td>
 

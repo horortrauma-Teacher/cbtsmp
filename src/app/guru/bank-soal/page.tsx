@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -21,7 +21,12 @@ import {
   HelpCircle,
   Layers,
   ArrowRight,
+  ArrowLeft,
   ExternalLink,
+  FileText,
+  Download,
+  Printer,
+  FolderArchive,
 } from 'lucide-react';
 import { useCBTData } from '@/lib/store';
 import { Soal, Stimulus, TipeSoal, LevelKognitif, Fase, TipeStimulus } from '@/types/cbt';
@@ -35,14 +40,38 @@ import {
   TopikMateri
 } from '@/lib/curriculum-data';
 
+export interface DokumenPaketSoal {
+  id: string;
+  jenjang: 'SMP' | 'SMA';
+  mataPelajaran: string;
+  topik: string;
+  fase: string;
+  kelas: string[];
+  soalList: Soal[];
+  totalSoal: number;
+  totalBobot: number;
+  tipeCounts: {
+    PG: number;
+    PGK: number;
+    MENJODOHKAN: number;
+    URAIAN: number;
+  };
+  hotsCount: number;
+  pembuat: string;
+  updatedAt: string;
+}
+
 function BankSoalContent() {
   const searchParams = useSearchParams();
   const { soalList, allSoalList, stimulusList, allStimulusList, addSoal, deleteSoal, addStimulus } = useCBTData();
   const [guruProfile, setGuruProfileState] = useState<GuruProfile | null>(null);
   const [scopeFilter, setScopeFilter] = useState<'mine' | 'all'>('mine');
 
-  // Active Tab: 'daftar' | 'editor'
-  const [activeTab, setActiveTab] = useState<'daftar' | 'editor'>('daftar');
+  // Active Tab: 'daftar' | 'generator' | 'editor' (Sub-Halaman penuh, tidak mengambang)
+  const [activeTab, setActiveTab] = useState<'daftar' | 'generator' | 'editor'>('daftar');
+
+  // State untuk membuka / mengedit dokumen paket soal tertentu
+  const [activeInspectedDocId, setActiveInspectedDocId] = useState<string | null>(null);
 
   // AI Generator Modal
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
@@ -64,6 +93,8 @@ function BankSoalContent() {
     const tabParam = searchParams.get('tab');
     if (tabParam === 'editor') {
       setActiveTab('editor');
+    } else if (tabParam === 'generator') {
+      setActiveTab('generator');
     }
   }, [searchParams]);
 
@@ -307,6 +338,295 @@ function BankSoalContent() {
     return matchSearch && matchJenjang && matchMapel && matchFase && matchTipe && matchHots;
   });
 
+  // Pengelompokan Butir Soal Menjadi File Dokumen Paket Soal (Poin 4)
+  const dokumenPaketList: DokumenPaketSoal[] = useMemo(() => {
+    const map = new Map<string, DokumenPaketSoal>();
+
+    filteredSoal.forEach((s) => {
+      const j = (s.jenjang || (s.fase?.includes('SMA') ? 'SMA' : 'SMP')) as 'SMP' | 'SMA';
+      const m = s.mataPelajaran || 'Umum';
+      const t = s.topik || 'Umum';
+      const key = `${j}___${m}___${t}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          jenjang: j,
+          mataPelajaran: m,
+          topik: t,
+          fase: s.fase || (j === 'SMP' ? 'Fase D (SMP)' : 'Fase E (SMA 10)'),
+          kelas: s.kelas || [],
+          soalList: [],
+          totalSoal: 0,
+          totalBobot: 0,
+          tipeCounts: { PG: 0, PGK: 0, MENJODOHKAN: 0, URAIAN: 0 },
+          hotsCount: 0,
+          pembuat: s.pembuat || 'Guru CBT',
+          updatedAt: s.createdAt || new Date().toISOString().split('T')[0],
+        });
+      }
+
+      const doc = map.get(key)!;
+      doc.soalList.push(s);
+      doc.totalSoal += 1;
+      doc.totalBobot += s.bobot;
+      if (s.tipeSoal in doc.tipeCounts) {
+        doc.tipeCounts[s.tipeSoal]++;
+      }
+      if (s.isHots) {
+        doc.hotsCount += 1;
+      }
+    });
+
+    return Array.from(map.values());
+  }, [filteredSoal]);
+
+  const activeInspectedDoc = useMemo(() => {
+    if (!activeInspectedDocId) return null;
+    return dokumenPaketList.find((d) => d.id === activeInspectedDocId) || null;
+  }, [dokumenPaketList, activeInspectedDocId]);
+
+  // Handler Download File DOC (.doc untuk Microsoft Word)
+  const handleDownloadDoc = (doc: DokumenPaketSoal) => {
+    const safeTitle = `Naskah_Soal_${doc.mataPelajaran}_${doc.topik}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const docHtml = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head>
+        <meta charset='utf-8'>
+        <title>${doc.mataPelajaran} - ${doc.topik}</title>
+        <style>
+          body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; color: #000; margin: 2cm; }
+          .kop { text-align: center; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 18px; }
+          .kop h2 { margin: 0; font-size: 15pt; text-transform: uppercase; font-weight: bold; }
+          .kop h3 { margin: 2px 0; font-size: 13pt; font-weight: bold; }
+          .kop p { margin: 2px 0; font-size: 11pt; }
+          .meta { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11pt; }
+          .meta td { padding: 3px 6px; vertical-align: top; }
+          .soal-box { margin-bottom: 16px; page-break-inside: avoid; }
+          .opsi { margin-left: 20px; list-style-type: upper-alpha; margin-top: 4px; }
+          .opsi li { margin-bottom: 3px; }
+          .key-page { page-break-before: always; margin-top: 30px; border-top: 2px dashed #000; padding-top: 15px; }
+          table.kunci { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt; }
+          table.kunci th, table.kunci td { border: 1px solid #000; padding: 6px; }
+          table.kunci th { background: #f2f2f2; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="kop">
+          <h2>PEMERINTAH DAERAH DINAS PENDIDIKAN</h2>
+          <h3>ASESMEN SUMATIF CBT KURIKULUM MERDEKA</h3>
+          <p>Tahun Ajaran 2026/2027 • Jenjang ${doc.jenjang} (${doc.fase})</p>
+        </div>
+
+        <table class="meta">
+          <tr>
+            <td width="22%"><b>Mata Pelajaran</b></td>
+            <td width="38%">: ${doc.mataPelajaran}</td>
+            <td width="18%"><b>Hari / Tanggal</b></td>
+            <td width="22%">: ............................</td>
+          </tr>
+          <tr>
+            <td><b>Topik Materi</b></td>
+            <td>: ${doc.topik}</td>
+            <td><b>Waktu</b></td>
+            <td>: 60 Menit</td>
+          </tr>
+          <tr>
+            <td><b>Total Soal</b></td>
+            <td>: ${doc.totalSoal} Butir (${doc.totalBobot} Poin)</td>
+            <td><b>Nama Murid</b></td>
+            <td>: ............................</td>
+          </tr>
+        </table>
+        <hr style="border: 0.5px solid #000; margin-bottom: 14px;" />
+
+        <p style="font-size: 11pt; font-style: italic; margin-bottom: 14px;">
+          <b>PETUNJUK UMUM:</b> Bacalah dengan teliti setiap butir soal dan stimulus wacana di bawah ini sebelum menjawab!
+        </p>
+
+        <div class="soal-list">
+          ${doc.soalList.map((s, idx) => `
+            <div class="soal-box">
+              <p><b>${idx + 1}.</b> [${s.tipeSoal} • ${s.bobot} Poin] ${s.pertanyaan}</p>
+              ${s.stimulus?.kontenTeks ? `<blockquote style="background:#f7f7f7; padding:8px 12px; border-left:3px solid #666; font-style:italic; margin:6px 0;"><b>Stimulus:</b> ${s.stimulus.kontenTeks}</blockquote>` : ''}
+              ${s.opsiPG && s.opsiPG.length > 0 ? `
+                <ol class="opsi">
+                  ${s.opsiPG.map((o) => `<li>${o.teks}</li>`).join('')}
+                </ol>
+              ` : ''}
+              ${s.opsiPGK && s.opsiPGK.length > 0 ? `
+                <ul style="margin-left:20px; list-style-type: square; margin-top:4px;">
+                  ${s.opsiPGK.map((o) => `<li>${o.teks}</li>`).join('')}
+                </ul>
+              ` : ''}
+              ${s.pasanganMenjodohkan && s.pasanganMenjodohkan.length > 0 ? `
+                <table border="1" cellpadding="4" style="border-collapse:collapse; margin-left:20px; width:85%; font-size:10pt;">
+                  <tr bgcolor="#eee"><th>Premis</th><th>Pasangan Target</th></tr>
+                  ${s.pasanganMenjodohkan.map((p) => `<tr><td>${p.premis}</td><td>${p.target}</td></tr>`).join('')}
+                </table>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="key-page">
+          <h3 style="text-align: center; text-transform: uppercase;">KUNCI JAWABAN & PEDOMAN PENSKORAN</h3>
+          <p style="font-size: 11pt; text-align: center; margin-bottom: 15px;">Dokumen Rahasia - Pegangan Guru Pengampu CBT</p>
+          <table class="kunci">
+            <tr>
+              <th width="8%">No</th>
+              <th width="18%">Bentuk Soal</th>
+              <th>Kunci Jawaban / Rubrik</th>
+              <th width="12%">Bobot</th>
+            </tr>
+            ${doc.soalList.map((s, idx) => `
+              <tr>
+                <td align="center">${idx + 1}</td>
+                <td align="center">${s.tipeSoal}</td>
+                <td>${s.kunciPG || (s.opsiPGK?.filter(o=>o.isKunci).map(o=>o.teks).join(', ')) || s.kunciUraian || (s.pasanganMenjodohkan ? s.pasanganMenjodohkan.map(p=>`${p.premis} &rarr; ${p.target}`).join('; ') : '-')}</td>
+                <td align="center">${s.bobot}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['\ufeff', docHtml], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeTitle}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Dokumen Word "${safeTitle}.doc" berhasil diunduh!`);
+  };
+
+  // Handler Download File PDF
+  const handleDownloadPdf = (doc: DokumenPaketSoal) => {
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+      alert('Izinkan pop-up pada peramban Anda untuk mencetak naskah soal PDF.');
+      return;
+    }
+    const safeTitle = `Naskah_Soal_${doc.mataPelajaran}_${doc.topik}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const docHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset='utf-8'>
+        <title>${doc.mataPelajaran} - ${doc.topik}</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12pt; line-height: 1.5; color: #111; margin: 15mm; }
+          .kop { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
+          .kop h2 { margin: 0; font-size: 16pt; font-weight: 800; }
+          .kop h3 { margin: 2px 0; font-size: 13pt; font-weight: 700; }
+          .kop p { margin: 2px 0; font-size: 10pt; color: #444; }
+          .meta { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10pt; }
+          .meta td { padding: 3px 6px; vertical-align: top; }
+          .soal-box { margin-bottom: 15px; page-break-inside: avoid; }
+          .opsi { margin-left: 20px; list-style-type: upper-alpha; margin-top: 4px; }
+          .opsi li { margin-bottom: 3px; }
+          .key-page { page-break-before: always; margin-top: 30px; border-top: 2px dashed #000; padding-top: 15px; }
+          table.kunci { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt; }
+          table.kunci th, table.kunci td { border: 1px solid #000; padding: 6px; }
+          table.kunci th { background: #eee; text-align: center; }
+          @media print {
+            body { margin: 10mm; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="margin-bottom: 20px; padding: 12px; background: #e0f2fe; border: 1px solid #7dd3fc; border-radius: 8px; text-align: center;">
+          <p style="margin: 0 0 8px 0; font-weight: bold; color: #0369a1;">Naskah Siap Dicetak / Disimpan sebagai File PDF</p>
+          <button onclick="window.print()" style="padding: 8px 20px; font-weight: bold; background: #0284c7; color: white; border: none; border-radius: 6px; cursor: pointer;">🖨️ Cetak / Simpan PDF Sekarang</button>
+        </div>
+
+        <div class="kop">
+          <h2>PEMERINTAH DAERAH DINAS PENDIDIKAN</h2>
+          <h3>NASKAH ASESMEN SUMATIF CBT KURIKULUM MERDEKA</h3>
+          <p>Tahun Ajaran 2026/2027 • Jenjang ${doc.jenjang} (${doc.fase})</p>
+        </div>
+
+        <table class="meta">
+          <tr>
+            <td width="20%"><b>Mata Pelajaran</b></td>
+            <td width="35%">: ${doc.mataPelajaran}</td>
+            <td width="20%"><b>Hari / Tanggal</b></td>
+            <td width="25%">: ............................</td>
+          </tr>
+          <tr>
+            <td><b>Topik Materi</b></td>
+            <td>: ${doc.topik}</td>
+            <td><b>Waktu Pengerjaan</b></td>
+            <td>: 60 Menit</td>
+          </tr>
+          <tr>
+            <td><b>Total Soal</b></td>
+            <td>: ${doc.totalSoal} Butir (${doc.totalBobot} Poin)</td>
+            <td><b>Nama Lengkap Murid</b></td>
+            <td>: ............................</td>
+          </tr>
+        </table>
+        <hr style="border: 0.5px solid #000; margin-bottom: 12px;" />
+
+        <div class="soal-list">
+          ${doc.soalList.map((s, idx) => `
+            <div class="soal-box">
+              <p><b>${idx + 1}.</b> [${s.tipeSoal} • ${s.bobot} Poin] ${s.pertanyaan}</p>
+              ${s.stimulus?.kontenTeks ? `<blockquote style="background:#f8fafc; padding:8px 12px; border-left:3px solid #64748b; font-style:italic; margin:6px 0;"><b>Stimulus:</b> ${s.stimulus.kontenTeks}</blockquote>` : ''}
+              ${s.opsiPG && s.opsiPG.length > 0 ? `
+                <ol class="opsi">
+                  ${s.opsiPG.map((o) => `<li>${o.teks}</li>`).join('')}
+                </ol>
+              ` : ''}
+              ${s.opsiPGK && s.opsiPGK.length > 0 ? `
+                <ul style="margin-left:20px; list-style-type: square; margin-top:4px;">
+                  ${s.opsiPGK.map((o) => `<li>${o.teks}</li>`).join('')}
+                </ul>
+              ` : ''}
+              ${s.pasanganMenjodohkan && s.pasanganMenjodohkan.length > 0 ? `
+                <table border="1" cellpadding="4" style="border-collapse:collapse; margin-left:20px; width:85%; font-size:10pt;">
+                  <tr bgcolor="#f1f5f9"><th>Premis</th><th>Pasangan Target</th></tr>
+                  ${s.pasanganMenjodohkan.map((p) => `<tr><td>${p.premis}</td><td>${p.target}</td></tr>`).join('')}
+                </table>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="key-page">
+          <h3 style="text-align: center; text-transform: uppercase;">KUNCI JAWABAN & PEDOMAN PENSKORAN</h3>
+          <p style="font-size: 10pt; text-align: center; margin-bottom: 12px;">Dokumen Pegangan Guru Pengampu CBT</p>
+          <table class="kunci">
+            <tr>
+              <th width="8%">No</th>
+              <th width="18%">Bentuk</th>
+              <th>Kunci Jawaban</th>
+              <th width="12%">Bobot</th>
+            </tr>
+            ${doc.soalList.map((s, idx) => `
+              <tr>
+                <td align="center">${idx + 1}</td>
+                <td align="center">${s.tipeSoal}</td>
+                <td>${s.kunciPG || (s.opsiPGK?.filter(o=>o.isKunci).map(o=>o.teks).join(', ')) || s.kunciUraian || (s.pasanganMenjodohkan ? s.pasanganMenjodohkan.map(p=>`${p.premis} &rarr; ${p.target}`).join('; ') : '-')}</td>
+                <td align="center">${s.bobot}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+      </body>
+      </html>
+    `;
+    printWin.document.write(docHtml);
+    printWin.document.close();
+    showToast(`Jendela cetak / download PDF untuk "${safeTitle}" telah disiapkan.`);
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Toast Alert */}
@@ -329,39 +649,46 @@ function BankSoalContent() {
           </p>
         </div>
 
-        {/* Header Actions: AI Generator & Tab Switcher */}
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIsAIModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold text-xs sm:text-sm shadow-md hover:shadow-lg flex items-center gap-2 transition-all active:scale-95 group"
-          >
-            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse group-hover:rotate-12 transition-transform" />
-            <span>⚡ Generate Soal AI (Gemini)</span>
-          </button>
-
-          {/* Tab Switcher */}
-          <div className="flex items-center p-1 bg-slate-200/80 rounded-xl">
+        {/* Header Actions: Sub-Halaman Tabs */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center p-1.5 bg-slate-100 rounded-2xl border-2 border-slate-200 gap-1.5">
             <button
-              onClick={() => setActiveTab('daftar')}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+              onClick={() => {
+                setActiveTab('daftar');
+                setActiveInspectedDocId(null);
+              }}
+              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'daftar'
-                  ? 'bg-white text-blue-700 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
               }`}
             >
-              Daftar Soal ({activeSoalSource.length})
+              <FileText className="w-4 h-4" />
+              <span>📁 Dokumen Paket ({dokumenPaketList.length} Berkas)</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('generator')}
+              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'generator'
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-purple-800 hover:text-purple-900 hover:bg-purple-50'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>⚡ Generator AI (Sub-Halaman)</span>
+            </button>
+
             <button
               onClick={() => setActiveTab('editor')}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 ${
+              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'editor'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-slate-700 hover:text-slate-900 hover:bg-slate-200/70'
               }`}
             >
               <Plus className="w-4 h-4" />
-              <span>Input Soal Manual</span>
+              <span>✍️ Buat Soal Manual (Sub-Halaman)</span>
             </button>
           </div>
         </div>
@@ -654,33 +981,350 @@ function BankSoalContent() {
             </div>
           )}
 
-          {/* Soal Cards List */}
-          <div className="space-y-4">
-            {filteredSoal.length === 0 ? (
-              <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 space-y-4">
-                <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
-                  <FileQuestion className="w-8 h-8" />
+          {/* TAMPILAN BERKAS DOKUMEN PAKET SOAL ATAU DETAIL PAKET (Poin 4) */}
+          {activeInspectedDoc ? (
+            /* Sub-Halaman Detail Berkas Dokumen Paket Soal */
+            <div className="space-y-6">
+              {/* Header Dokumen Paket */}
+              <div className="bg-white p-6 sm:p-7 rounded-3xl border-2 border-blue-200 shadow-sm space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setActiveInspectedDocId(null)}
+                    className="flex items-center gap-2 text-slate-700 hover:text-blue-700 font-bold text-base px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-blue-50 border border-slate-200 transition-all cursor-pointer w-fit"
+                  >
+                    <ArrowLeft className="w-5 h-5 text-blue-600" />
+                    <span>⬅️ Kembali ke Daftar Dokumen Paket</span>
+                  </button>
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPdf(activeInspectedDoc)}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4" />
+                      <span>📄 Download PDF (Siap Cetak)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadDoc(activeInspectedDoc)}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>📝 Download DOC (Word)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMapel(activeInspectedDoc.mataPelajaran);
+                        setTopikForm(activeInspectedDoc.topik);
+                        setJenjangForm(activeInspectedDoc.jenjang);
+                        setActiveTab('editor');
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>➕ Tambah Soal Manual</span>
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {activeSoalSource.length === 0
-                      ? scopeFilter === 'mine'
-                        ? 'Bank Soal Anda Masih Kosong'
-                        : 'Bank Soal Kolektif Masih Kosong'
-                      : 'Tidak ada butir soal yang sesuai filter'}
-                  </h3>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                    {activeSoalSource.length === 0
-                      ? 'Belum ada butir soal yang tersimpan di akun ini. Anda dapat langsung meng-generate butir soal otomatis berbasis materi lewat AI atau menyusun soal AKM baru secara mandiri.'
-                      : 'Coba sesuaikan kata kunci pencarian atau ubah filter di atas.'}
+
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-3 py-1 rounded-lg bg-blue-100 text-blue-800 font-extrabold text-xs">
+                      {activeInspectedDoc.jenjang} • {activeInspectedDoc.fase}
+                    </span>
+                    <span className="px-3 py-1 rounded-lg bg-purple-100 text-purple-800 font-bold text-xs">
+                      Topik: {activeInspectedDoc.topik}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      Penyusun: {activeInspectedDoc.pembuat}
+                    </span>
+                    {activeInspectedDoc.hotsCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+                        <Sparkles className="w-3 h-3" />
+                        {activeInspectedDoc.hotsCount} Butir HOTS
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                    {activeInspectedDoc.mataPelajaran} — {activeInspectedDoc.topik}
+                  </h2>
+                  <p className="text-sm text-slate-600">
+                    Dokumen ini berisi total <b>{activeInspectedDoc.totalSoal} butir soal</b> dengan akumulasi <b>bobot {activeInspectedDoc.totalBobot} poin</b> (PG: {activeInspectedDoc.tipeCounts.PG}, PGK: {activeInspectedDoc.tipeCounts.PGK}, Menjodohkan: {activeInspectedDoc.tipeCounts.MENJODOHKAN}, Uraian: {activeInspectedDoc.tipeCounts.URAIAN}).
                   </p>
                 </div>
-                {activeSoalSource.length === 0 && (
+              </div>
+
+              {/* Daftar Butir Soal Dokumen Ini */}
+              <div className="space-y-4">
+                {activeInspectedDoc.soalList.map((soal: Soal, idx: number) => (
+                  <div
+                    key={soal.id}
+                    className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-sm hover:shadow-md transition-all space-y-4"
+                  >
+                    {/* Top Badges & Meta */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-md">
+                          #{idx + 1}
+                        </span>
+                        <span className="font-semibold px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                          {soal.mataPelajaran}
+                        </span>
+                        {soal.topik && (
+                          <span className="font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200">
+                            {soal.topik}
+                          </span>
+                        )}
+                        <span className="font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                          {soal.fase}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Target: {soal.kelas.join(', ')}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {soal.isHots ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm">
+                            <Sparkles className="w-3 h-3" />
+                            HOTS ({soal.levelKognitif})
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                            {soal.levelKognitif}
+                          </span>
+                        )}
+
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {soal.tipeSoal === 'PG'
+                            ? 'Pilihan Ganda'
+                            : soal.tipeSoal === 'PGK'
+                            ? 'PG Kompleks'
+                            : soal.tipeSoal === 'MENJODOHKAN'
+                            ? 'Menjodohkan'
+                            : 'Uraian'}
+                        </span>
+
+                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                          Bobot: {soal.bobot} Poin
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Stimulus Preview */}
+                    {soal.stimulus && (
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
+                        <div className="flex items-center justify-between text-slate-700 font-semibold mb-1">
+                          <span className="flex items-center gap-1.5 text-blue-700">
+                            <BookOpen className="w-3.5 h-3.5" />
+                            Stimulus: {soal.stimulus.judul}
+                          </span>
+                          <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded text-slate-600 font-normal">
+                            {soal.stimulus.tipe}
+                          </span>
+                        </div>
+                        <p className="text-slate-600 line-clamp-2 leading-relaxed">
+                          {soal.stimulus.kontenTeks}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Pertanyaan */}
+                    <div className="text-sm font-semibold text-slate-800 leading-relaxed">
+                      {soal.pertanyaan}
+                    </div>
+
+                    {/* Options / Key preview */}
+                    {soal.tipeSoal === 'PG' && soal.opsiPG && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                        {soal.opsiPG.map((opt: any) => {
+                          const isCorrect = opt.id === soal.kunciPG;
+                          return (
+                            <div
+                              key={opt.id}
+                              className={`p-2.5 rounded-xl border flex items-start gap-2 ${
+                                isCorrect
+                                  ? 'bg-emerald-50/80 border-emerald-300 text-emerald-900 font-medium'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <span
+                                className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                                  isCorrect
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}
+                              >
+                                {opt.label}
+                              </span>
+                              <span className="flex-1 min-w-0">{opt.teks}</span>
+                              {isCorrect && (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {soal.tipeSoal === 'PGK' && soal.opsiPGK && (
+                      <div className="space-y-1.5 text-xs pt-1">
+                        <p className="text-[11px] font-bold text-slate-500 uppercase">Pernyataan & Kunci Kebenaran:</p>
+                        {soal.opsiPGK.map((opt: any, i: number) => (
+                          <div
+                            key={opt.id}
+                            className={`p-2 rounded-lg border flex items-center justify-between text-xs ${
+                              opt.isKunci
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium'
+                                : 'bg-white border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-4 h-4 rounded bg-slate-200 text-[10px] font-bold flex items-center justify-center text-slate-700">
+                                {i + 1}
+                              </span>
+                              <span>{opt.teks}</span>
+                            </div>
+                            {opt.isKunci && (
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                                Kunci: BENAR
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {soal.tipeSoal === 'MENJODOHKAN' && soal.pasanganMenjodohkan && (
+                      <div className="space-y-1.5 text-xs pt-1">
+                        <p className="text-[11px] font-bold text-slate-500 uppercase">Pasangan Premis & Target:</p>
+                        <div className="grid grid-cols-1 gap-2">
+                          {soal.pasanganMenjodohkan.map((pair: any, pIdx: number) => (
+                            <div
+                              key={pair.id}
+                              className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                            >
+                              <span className="font-semibold text-slate-800">
+                                {pIdx + 1}. {pair.premis}
+                              </span>
+                              <div className="flex items-center gap-2 text-indigo-700 font-medium">
+                                <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>{pair.target}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {soal.tipeSoal === 'URAIAN' && (
+                      <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200 text-xs space-y-1.5">
+                        <p className="font-bold text-amber-900">Pedoman Penskoran & Rubrik:</p>
+                        <p className="text-slate-700 whitespace-pre-line">{soal.rubrikUraian}</p>
+                      </div>
+                    )}
+
+                    {/* Bottom Action Footer */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
+                      <div className="flex flex-wrap items-center gap-2 text-slate-500">
+                        <span>Dibuat: {soal.createdAt}</span>
+                        {soal.pembuat && (
+                          <>
+                            <span>•</span>
+                            <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                              Penyusun: {soal.pembuat}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPreviewSoal(soal)}
+                          className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 flex items-center gap-1.5 transition-colors font-medium cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Pratinjau Siswa</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Apakah Anda yakin ingin menghapus butir soal ini?')) {
+                              deleteSoal(soal.id);
+                              showToast('Soal berhasil dihapus dari bank soal');
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center gap-1.5 transition-colors font-medium cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Hapus</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* Grid Berkas Dokumen Paket Soal */
+            <div className="space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                    <FolderArchive className="w-6 h-6 text-blue-600" />
+                    <span>Berkas Dokumen Paket Soal ({dokumenPaketList.length} Paket Tersedia)</span>
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
+                    Soal telah dirapikan menjadi dokumen paket per materi/topik. Klik <b>Buka & Kelola</b> untuk melihat atau mengedit butir soal, atau klik tombol <b>PDF / Word</b> untuk langsung mengunduh naskah ujian cetak.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('generator')}
+                    className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs sm:text-sm shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>⚡ Generate via AI</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('editor')}
+                    className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>➕ Buat Manual</span>
+                  </button>
+                </div>
+              </div>
+
+              {dokumenPaketList.length === 0 ? (
+                <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 space-y-4">
+                  <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
+                    <FileQuestion className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">
+                      {activeSoalSource.length === 0
+                        ? scopeFilter === 'mine'
+                          ? 'Bank Soal Anda Masih Kosong'
+                          : 'Bank Soal Kolektif Masih Kosong'
+                        : 'Tidak Ada Dokumen Paket Soal yang Sesuai Filter'}
+                    </h3>
+                    <p className="text-sm text-slate-500 max-w-md mx-auto mt-1">
+                      {activeSoalSource.length === 0
+                        ? 'Belum ada butir soal yang tersimpan di akun ini. Anda dapat langsung meng-generate butir soal otomatis berbasis materi lewat AI atau menyusun soal AKM baru secara mandiri.'
+                        : 'Coba sesuaikan kata kunci pencarian atau ubah filter jenjang/mapel di atas.'}
+                    </p>
+                  </div>
                   <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                     <button
                       type="button"
-                      onClick={() => setIsAIModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md flex items-center gap-2 cursor-pointer transition-all"
+                      onClick={() => setActiveTab('generator')}
+                      className="px-5 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm shadow-md flex items-center gap-2 cursor-pointer transition-all"
                     >
                       <Sparkles className="w-4 h-4 text-amber-300" />
                       <span>⚡ Generate Soal dengan AI (Gemini)</span>
@@ -688,245 +1332,134 @@ function BankSoalContent() {
                     <button
                       type="button"
                       onClick={() => setActiveTab('editor')}
-                      className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all"
+                      className="px-5 py-3 rounded-xl border-2 border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-sm flex items-center gap-2 cursor-pointer transition-all"
                     >
-                      <PlusCircle className="w-4 h-4 text-blue-600" />
+                      <Plus className="w-4 h-4 text-blue-600" />
                       <span>➕ Tambah Soal Manual</span>
                     </button>
                   </div>
-                )}
-              </div>
-            ) : (
-              filteredSoal.map((soal, idx) => (
-                <div
-                  key={soal.id}
-                  className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-sm hover:shadow-md transition-all space-y-4"
-                >
-                  {/* Top Badges & Meta */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-md">
-                        #{idx + 1}
-                      </span>
-                      <span className="font-semibold px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
-                        {soal.mataPelajaran}
-                      </span>
-                      {soal.topik && (
-                        <span className="font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200">
-                          {soal.topik}
-                        </span>
-                      )}
-                      <span className="font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
-                        {soal.fase}
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-medium">
-                        Target: {soal.kelas.join(', ')}
-                      </span>
-                      {soal.pembuat && (
-                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1">
-                          <span>👤 {soal.pembuat}</span>
-                          {guruProfile?.namaLengkap &&
-                            soal.pembuat.toLowerCase().includes(
-                              guruProfile.namaLengkap
-                                .toLowerCase()
-                                .replace(/(drs\.|dra\.|ir\.|dr\.|h\.|hj\.|pak|ibu)\s+/i, '')
-                                .trim()
-                            ) && (
-                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1 rounded">
-                                Anda
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {dokumenPaketList.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="bg-white rounded-3xl p-6 border-2 border-slate-200 hover:border-blue-400 hover:shadow-lg transition-all flex flex-col justify-between gap-5 group"
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-blue-100 group-hover:bg-blue-600 text-blue-700 group-hover:text-white flex items-center justify-center transition-colors shadow-inner">
+                              <FileText className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-black uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
+                                {doc.jenjang} • {doc.fase}
                               </span>
-                            )}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {/* HOTS Badge */}
-                      {soal.isHots ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm">
-                          <Sparkles className="w-3 h-3" />
-                          HOTS ({soal.levelKognitif})
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                          {soal.levelKognitif}
-                        </span>
-                      )}
-
-                      {/* Tipe Soal Badge */}
-                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                        {soal.tipeSoal === 'PG'
-                          ? 'Pilihan Ganda'
-                          : soal.tipeSoal === 'PGK'
-                          ? 'PG Kompleks'
-                          : soal.tipeSoal === 'MENJODOHKAN'
-                          ? 'Menjodohkan'
-                          : 'Uraian'}
-                      </span>
-
-                      {/* Bobot Badge */}
-                      <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                        Bobot: {soal.bobot} Poin
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Stimulus Preview (if attached) */}
-                  {soal.stimulus && (
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
-                      <div className="flex items-center justify-between text-slate-700 font-semibold mb-1">
-                        <span className="flex items-center gap-1.5 text-blue-700">
-                          <BookOpen className="w-3.5 h-3.5" />
-                          Stimulus: {soal.stimulus.judul}
-                        </span>
-                        <span className="text-[10px] bg-slate-200 px-1.5 py-0.5 rounded text-slate-600 font-normal">
-                          {soal.stimulus.tipe}
-                        </span>
-                      </div>
-                      <p className="text-slate-600 line-clamp-2 leading-relaxed">
-                        {soal.stimulus.kontenTeks}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Pertanyaan */}
-                  <div className="text-sm font-semibold text-slate-800 leading-relaxed">
-                    {soal.pertanyaan}
-                  </div>
-
-                  {/* Options / Key preview based on question type */}
-                  {soal.tipeSoal === 'PG' && soal.opsiPG && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
-                      {soal.opsiPG.map((opt) => {
-                        const isCorrect = opt.id === soal.kunciPG;
-                        return (
-                          <div
-                            key={opt.id}
-                            className={`p-2.5 rounded-xl border flex items-start gap-2 ${
-                              isCorrect
-                                ? 'bg-emerald-50/80 border-emerald-300 text-emerald-900 font-medium'
-                                : 'bg-white border-slate-200 text-slate-700'
-                            }`}
-                          >
-                            <span
-                              className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
-                                isCorrect
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-slate-100 text-slate-600'
-                              }`}
-                            >
-                              {opt.label}
-                            </span>
-                            <span className="flex-1 min-w-0">{opt.teks}</span>
-                            {isCorrect && (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                            )}
+                              <h4 className="text-lg font-black text-slate-900 group-hover:text-blue-700 transition-colors mt-1 line-clamp-1">
+                                {doc.mataPelajaran}
+                              </h4>
+                            </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {soal.tipeSoal === 'PGK' && soal.opsiPGK && (
-                    <div className="space-y-1.5 text-xs pt-1">
-                      <p className="text-[11px] font-bold text-slate-500 uppercase">Pernyataan & Kunci Kebenaran:</p>
-                      {soal.opsiPGK.map((opt, i) => (
-                        <div
-                          key={opt.id}
-                          className={`p-2 rounded-lg border flex items-center justify-between text-xs ${
-                            opt.isKunci
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium'
-                              : 'bg-white border-slate-200 text-slate-600'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="w-4 h-4 rounded bg-slate-200 text-[10px] font-bold flex items-center justify-center text-slate-700">
-                              {i + 1}
-                            </span>
-                            <span>{opt.teks}</span>
-                          </div>
-                          {opt.isKunci && (
-                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                              Kunci: BENAR
+                          {doc.hotsCount > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs shrink-0">
+                              <Sparkles className="w-3 h-3" />
+                              {doc.hotsCount} HOTS
                             </span>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  )}
 
-                  {soal.tipeSoal === 'MENJODOHKAN' && soal.pasanganMenjodohkan && (
-                    <div className="space-y-1.5 text-xs pt-1">
-                      <p className="text-[11px] font-bold text-slate-500 uppercase">Pasangan Premis & Target:</p>
-                      <div className="grid grid-cols-1 gap-2">
-                        {soal.pasanganMenjodohkan.map((pair, pIdx) => (
-                          <div
-                            key={pair.id}
-                            className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                          >
-                            <span className="font-semibold text-slate-800">
-                              {pIdx + 1}. {pair.premis}
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-1.5">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Topik Pembelajaran:
+                          </span>
+                          <p className="text-sm font-extrabold text-purple-900 line-clamp-2">
+                            📖 {doc.topik}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                            <span className="text-slate-500 block text-[11px]">Jumlah Butir:</span>
+                            <span className="font-extrabold text-slate-900 text-sm">
+                              {doc.totalSoal} Soal ({doc.totalBobot} Poin)
                             </span>
-                            <div className="flex items-center gap-2 text-indigo-700 font-medium">
-                              <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                              <span>{pair.target}</span>
-                            </div>
                           </div>
-                        ))}
+                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                            <span className="text-slate-500 block text-[11px]">Komposisi Soal:</span>
+                            <span className="font-bold text-slate-800 text-[11px] line-clamp-1">
+                              PG:{doc.tipeCounts.PG} • PGK:{doc.tipeCounts.PGK} • Jdh:{doc.tipeCounts.MENJODOHKAN} • Esai:{doc.tipeCounts.URAIAN}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-100 space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveInspectedDocId(doc.id)}
+                          className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm shadow-md hover:shadow-blue-200 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                        >
+                          <Eye className="w-4 h-4" />
+                          <span>👁️ Buka & Kelola Butir Soal</span>
+                        </button>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadPdf(doc)}
+                            className="py-2.5 px-3 rounded-xl border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>📄 Unduh PDF</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadDoc(doc)}
+                            className="py-2.5 px-3 rounded-xl border-2 border-indigo-500 text-indigo-700 hover:bg-indigo-50 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>📝 Unduh DOC</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  )}
-
-                  {soal.tipeSoal === 'URAIAN' && (
-                    <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200 text-xs space-y-1.5">
-                      <p className="font-bold text-amber-900">Pedoman Penskoran & Rubrik:</p>
-                      <p className="text-slate-700 whitespace-pre-line">{soal.rubrikUraian}</p>
-                    </div>
-                  )}
-
-                  {/* Bottom Action Footer */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
-                    <div className="flex flex-wrap items-center gap-2 text-slate-500">
-                      <span>Dibuat: {soal.createdAt}</span>
-                      {soal.pembuat && (
-                        <>
-                          <span>•</span>
-                          <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
-                            Penyusun: {soal.pembuat}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setSelectedPreviewSoal(soal)}
-                        className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 flex items-center gap-1.5 transition-colors font-medium"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Pratinjau Siswa</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm('Apakah Anda yakin ingin menghapus butir soal ini?')) {
-                            deleteSoal(soal.id);
-                            showToast('Soal berhasil dihapus dari bank soal');
-                          }
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 flex items-center gap-1.5 transition-colors font-medium"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Hapus</span>
-                      </button>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              ))
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ======================= TAB 2: INPUT / EDITOR SOAL BARU ======================= */}
+      {/* ======================= TAB 2: GENERATOR AI SUB-HALAMAN (Poin 3) ======================= */}
+      {activeTab === 'generator' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+            <button
+              type="button"
+              onClick={() => setActiveTab('daftar')}
+              className="flex items-center gap-2 text-slate-700 hover:text-blue-600 font-bold text-base px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-blue-50 border border-slate-200 transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-5 h-5 text-blue-600" />
+              <span>⬅️ Kembali ke Bank Soal</span>
+            </button>
+            <span className="text-sm font-bold text-purple-700 bg-purple-50 px-3.5 py-1.5 rounded-xl border border-purple-200">
+              ⚡ Sub-Halaman AI Question Generator (Gemini)
+            </span>
+          </div>
+
+          <AIGeneratorModal
+            isOpen={true}
+            inlineMode={true}
+            onClose={() => setActiveTab('daftar')}
+            onSaveSoalList={handleSaveAIQuestions}
+            guruProfile={guruProfile}
+          />
+        </div>
+      )}
+
+      {/* ======================= TAB 3: INPUT / EDITOR SOAL BARU ======================= */}
       {activeTab === 'editor' && (
         <form onSubmit={handleSaveSoal} className="space-y-6">
           {/* Active Teacher Author Card */}

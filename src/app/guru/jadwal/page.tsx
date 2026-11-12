@@ -26,6 +26,7 @@ import {
   Unlock,
   Lock,
   ArrowRight,
+  ArrowLeft,
   Share2,
   Send,
   MessageCircle,
@@ -201,11 +202,18 @@ export default function JadwalCBTPage() {
   const [mapelList, setMapelList] = useState<MataPelajaranDetail[]>([]);
   const [mapel, setMapel] = useState('Informatika');
   const [topikList, setTopikList] = useState<TopikMateri[]>([]);
-  const [topikForm, setTopikForm] = useState<string>('');
+  // Multi-Select Topik Pembelajaran
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   
-  // Target Kelas & Durasi: default Kelas 7 SMP dan Kelas 8 SMP
-  const [targetKelas, setTargetKelas] = useState<string[]>(['Kelas 7 SMP', 'Kelas 8 SMP']);
+  // Target Kelas & Durasi: Default KOSONG (sesuai permintaan Guru)
+  const [targetKelas, setTargetKelas] = useState<string[]>([]);
   const [durasiMenit, setDurasiMenit] = useState<number>(60);
+
+  const availableRombelList = useMemo(() => {
+    return jenjangForm === 'SMP'
+      ? ['Kelas 7 SMP', 'Kelas 8 SMP', 'Kelas 9 SMP']
+      : ['Kelas 10 SMA', 'Kelas 11 SMA', 'Kelas 12 SMA'];
+  }, [jenjangForm]);
 
   // Waktu
   const [waktuMulai, setWaktuMulai] = useState(toDateTimeLocalString(new Date().toISOString()));
@@ -221,8 +229,13 @@ export default function JadwalCBTPage() {
     setJudul(j.judul || '');
     setJenjangForm((j.jenjang as JenjangPendidikan) || 'SMP');
     setMapel(j.mataPelajaran || '');
-    setTopikForm(j.topik || '');
-    setTargetKelas(j.targetKelas && j.targetKelas.length > 0 ? j.targetKelas : ['Kelas 7 SMP', 'Kelas 8 SMP']);
+    if (j.topik) {
+      const parts = j.topik.split(',').map((t) => t.trim()).filter(Boolean);
+      setSelectedTopics(parts);
+    } else {
+      setSelectedTopics([]);
+    }
+    setTargetKelas(j.targetKelas && j.targetKelas.length > 0 ? j.targetKelas : []);
     setDurasiMenit(j.durasiMenit || 60);
     setWaktuMulai(toDateTimeLocalString(j.waktuMulai));
     setWaktuSelesai(toDateTimeLocalString(j.waktuSelesai));
@@ -238,8 +251,12 @@ export default function JadwalCBTPage() {
     setJudul('');
     setJenjangForm('SMP');
     setMapel('Informatika');
-    setTopikForm('');
-    setTargetKelas(['Kelas 7 SMP', 'Kelas 8 SMP']);
+    const topics = getTopikByMataPelajaran('SMP', 'Informatika');
+    setTopikList(topics);
+    // Inisialisasi topik pertama jika tersedia
+    setSelectedTopics(topics.length > 0 ? [topics[0].nama] : []);
+    // Default rombel kosong (guru dapat memilih atau klik tombol Pilih Semua Rombel)
+    setTargetKelas([]);
     setDurasiMenit(60);
     setWaktuMulai(toDateTimeLocalString(new Date().toISOString()));
     setWaktuSelesai(toDateTimeLocalString(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()));
@@ -276,17 +293,16 @@ export default function JadwalCBTPage() {
   useEffect(() => {
     if (!mapel) {
       setTopikList([]);
-      setTopikForm('');
+      setSelectedTopics([]);
       return;
     }
     const topics = getTopikByMataPelajaran(jenjangForm, mapel);
     setTopikList(topics);
-    if (topics.length > 0) {
-      setTopikForm(topics[0].nama);
-    } else {
-      setTopikForm('');
+    if (!editingJadwalId) {
+      // Default: pilih topik pertama jika tersedia
+      setSelectedTopics(topics.length > 0 ? [topics[0].nama] : []);
     }
-  }, [jenjangForm, mapel]);
+  }, [jenjangForm, mapel, editingJadwalId]);
 
   // Set ID butir soal yang SUDAH PERNAH DIRILIS di jadwal ujian mana pun
   const releasedSoalIds = useMemo(() => {
@@ -305,7 +321,7 @@ export default function JadwalCBTPage() {
     return set;
   }, [allJadwalList, jadwalList, editingJadwalId]);
 
-  // Soal yang memenuhi syarat: sesuai Mapel & Jenjang, sesuai Topik Form aktif, dan BELUM PERNAH DIRILIS
+  // Soal yang memenuhi syarat: sesuai Mapel & Jenjang, sesuai Topik Form aktif (bisa lebih dari 1 topik), dan BELUM PERNAH DIRILIS
   const eligibleQuestions = useMemo(() => {
     return soalList.filter((s) => {
       // 1. Cek kecocokan Mapel & Jenjang
@@ -313,9 +329,10 @@ export default function JadwalCBTPage() {
         return false;
       }
 
-      // 2. Cek kecocokan Topik Pembelajaran yang dipilih (HANYA soal yang sesuai topik)
-      if (!showAllMapelSoal && !isSoalMatchingTopic(s, topikForm)) {
-        return false;
+      // 2. Cek kecocokan Topik Pembelajaran yang dipilih (HANYA soal yang sesuai dengan salah satu topik yang dipilih)
+      if (!showAllMapelSoal && selectedTopics.length > 0) {
+        const matchesAnyTopic = selectedTopics.some((t) => isSoalMatchingTopic(s, t));
+        if (!matchesAnyTopic) return false;
       }
 
       // 3. JANGAN MUNCULKAN SOAL YANG SUDAH PERNAH DIRILIS (kecuali opsi diaktifkan secara eksplisit)
@@ -330,18 +347,21 @@ export default function JadwalCBTPage() {
     showAllMapelSoal,
     jenjangForm,
     mapel,
-    topikForm,
+    selectedTopics,
     includeReleasedSoal,
     releasedSoalIds,
   ]);
 
-  // Total soal pada topik ini untuk transparansi dan indikator
+  // Total soal pada topik yang dipilih untuk transparansi dan indikator
   const totalTopicQuestions = useMemo(() => {
-    return soalList.filter((s) =>
-      isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel) &&
-      isSoalMatchingTopic(s, topikForm)
-    );
-  }, [soalList, jenjangForm, mapel, topikForm]);
+    return soalList.filter((s) => {
+      if (!isSoalMatchingMapelAndJenjang(s, jenjangForm, mapel)) return false;
+      if (selectedTopics.length > 0) {
+        return selectedTopics.some((t) => isSoalMatchingTopic(s, t));
+      }
+      return true;
+    });
+  }, [soalList, jenjangForm, mapel, selectedTopics]);
 
   const alreadyReleasedCountInThisTopic = useMemo(() => {
     return totalTopicQuestions.filter((s) => releasedSoalIds.has(s.id)).length;
@@ -433,9 +453,7 @@ export default function JadwalCBTPage() {
   // Toggle class target selection
   const handleToggleTargetKelas = (kls: string) => {
     if (targetKelas.includes(kls)) {
-      if (targetKelas.length > 1) {
-        setTargetKelas(targetKelas.filter((k) => k !== kls));
-      }
+      setTargetKelas(targetKelas.filter((k) => k !== kls));
     } else {
       setTargetKelas([...targetKelas, kls]);
     }
@@ -448,12 +466,17 @@ export default function JadwalCBTPage() {
       alert('Judul Ujian wajib diisi!');
       return;
     }
+    if (targetKelas.length === 0) {
+      alert('Harap pilih minimal 1 target rombel kelas! (Atau klik tombol "Pilih Semua Rombel")');
+      return;
+    }
     if (selectedSoalIds.length === 0) {
       alert('Pilih minimal 1 butir soal dari Bank Soal untuk ujian ini!');
       return;
     }
 
     const calculatedFase: Fase = jenjangForm === 'SMP' ? 'Fase D (SMP)' : 'Fase E (SMA 10)';
+    const finalTopik = selectedTopics.length > 0 ? selectedTopics.join(', ') : mapel;
 
     if (editingJadwalId) {
       // Mode Edit: pertahankan ID, pembuat, token, dan status sesi yang ada
@@ -463,7 +486,7 @@ export default function JadwalCBTPage() {
         judul,
         jenjang: jenjangForm,
         mataPelajaran: mapel,
-        topik: topikForm,
+        topik: finalTopik,
         fase: calculatedFase,
         targetKelas,
         durasiMenit: Number(durasiMenit),
@@ -493,7 +516,7 @@ export default function JadwalCBTPage() {
         judul,
         jenjang: jenjangForm,
         mataPelajaran: mapel,
-        topik: topikForm,
+        topik: finalTopik,
         fase: calculatedFase,
         targetKelas,
         durasiMenit: Number(durasiMenit),
@@ -524,6 +547,675 @@ export default function JadwalCBTPage() {
     setSearchQuerySoal('');
     setShowAllMapelSoal(false);
   };
+
+  // =========================================================================
+  // SUB-HALAMAN: KONFIGURASI JADWAL CBT (BUKAN MODAL MENGAMBANG)
+  // Menyesuaikan kenyamanan pengajar senior (font besar, tombol lega)
+  // =========================================================================
+  if (isFormOpen) {
+    return (
+      <div className="space-y-6 max-w-6xl mx-auto pb-16">
+        {/* Top Header Navigasi Sub-Halaman */}
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-100 text-blue-900 text-xs sm:text-sm font-black uppercase tracking-wider mb-1">
+              <CalendarClock className="w-4 h-4 text-blue-700" />
+              Sub-Bagian Jadwal CBT
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              {editingJadwalId ? 'Edit Sesi Jadwal Ujian CBT' : 'Konfigurasi Rilis Jadwal Ujian CBT Baru'}
+            </h1>
+            <p className="text-sm sm:text-base text-slate-600 font-medium">
+              {editingJadwalId
+                ? 'Perbarui judul, durasi pengerjaan, rentang waktu akses, target rombel, multi-topik pembelajaran, atau paket butir soal.'
+                : 'Lengkapi materi Kurikulum Merdeka (SMP & SMA), tentukan multi-topik, dan pilih butir soal yang diujikan.'}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsFormOpen(false);
+              setEditingJadwalId(null);
+            }}
+            className="px-6 py-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-sm sm:text-base border-2 border-slate-300 flex items-center justify-center gap-2.5 transition-all shadow-sm cursor-pointer self-start md:self-auto hover:scale-[1.02]"
+          >
+            <ArrowLeft className="w-5 h-5 text-slate-700" />
+            <span>⬅️ Kembali ke Daftar Jadwal</span>
+          </button>
+        </div>
+
+        {/* Sub-Halaman Form Body */}
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-slate-200 shadow-md space-y-8">
+          <form onSubmit={handleCreateJadwal} className="space-y-8">
+            {/* Active Teacher Creator Banner */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-black text-lg flex items-center justify-center shrink-0 shadow-md">
+                  {guruProfile?.namaLengkap
+                    ? guruProfile.namaLengkap.slice(0, 2).toUpperCase()
+                    : 'GU'}
+                </div>
+                <div>
+                  <span className="text-xs text-blue-700 font-bold uppercase tracking-wider block">
+                    Guru Pengampu / Penanggung Jawab Sesi Ujian:
+                  </span>
+                  <span className="font-extrabold text-slate-900 text-base sm:text-lg">
+                    {guruProfile?.namaLengkap || 'Bapak/Ibu Guru Pengampu CBT'}
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-3.5 py-1.5 rounded-full border border-emerald-300 shrink-0 self-start sm:self-auto flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                Akun Guru Aktif
+              </span>
+            </div>
+
+            {/* 1. Pilih Jenjang Pendidikan */}
+            <div className="space-y-2">
+              <label className="block text-base font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                <GraduationCap className="w-5 h-5 text-blue-600" />
+                <span>1. Jenjang Pendidikan:</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+                <button
+                  type="button"
+                  onClick={() => setJenjangForm('SMP')}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between cursor-pointer ${
+                    jenjangForm === 'SMP'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-4 ring-blue-100'
+                      : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                  }`}
+                >
+                  <div>
+                    <span className="font-black text-base block">Jenjang SMP</span>
+                    <span className={`text-xs ${jenjangForm === 'SMP' ? 'text-blue-100' : 'text-slate-500'}`}>
+                      Fase D (Kelas 7, 8, 9)
+                    </span>
+                  </div>
+                  {jenjangForm === 'SMP' && <Check className="w-5 h-5 stroke-[3]" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setJenjangForm('SMA')}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all flex items-center justify-between cursor-pointer ${
+                    jenjangForm === 'SMA'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-4 ring-blue-100'
+                      : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                  }`}
+                >
+                  <div>
+                    <span className="font-black text-base block">Jenjang SMA</span>
+                    <span className={`text-xs ${jenjangForm === 'SMA' ? 'text-blue-100' : 'text-slate-500'}`}>
+                      Fase E & F (Kelas 10, 11, 12)
+                    </span>
+                  </div>
+                  {jenjangForm === 'SMA' && <Check className="w-5 h-5 stroke-[3]" />}
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Judul Ujian & Mata Pelajaran */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="lg:col-span-2 space-y-2">
+                <label className="block text-base font-bold text-slate-800">
+                  Judul Sesi Ujian *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Contoh: Asesmen Sumatif Akhir Semester (ASAS) Informatika 2026"
+                  value={judul}
+                  onChange={(e) => setJudul(e.target.value)}
+                  required
+                  className="w-full p-4 text-base font-semibold rounded-2xl border-2 border-slate-300 focus:border-blue-600 focus:ring-4 focus:ring-blue-100 text-slate-900 bg-white"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-base font-bold text-slate-800 flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-indigo-600" />
+                  <span>Mata Pelajaran ({jenjangForm}) *</span>
+                </label>
+                <select
+                  value={mapel}
+                  onChange={(e) => setMapel(e.target.value)}
+                  className="w-full p-4 text-base rounded-2xl border-2 border-slate-300 bg-white font-bold text-slate-900 focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                >
+                  {mapelList.map((m) => (
+                    <option key={m.id} value={m.nama}>
+                      {m.nama} [{m.kategori}]
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                  <span>Durasi Pengerjaan (Menit)</span>
+                </label>
+                <input
+                  type="number"
+                  min="5"
+                  max="180"
+                  value={durasiMenit}
+                  onChange={(e) => setDurasiMenit(Number(e.target.value))}
+                  className="w-full p-4 text-base font-black rounded-2xl border-2 border-slate-300 text-blue-700 bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+
+            {/* 3. MULTI-SELECT TOPIK PEMBELAJARAN (Bisa memilih lebih dari 1 topik) */}
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-purple-600" />
+                    <span>3. Topik Pembelajaran:</span>
+                    <span className="text-xs font-black px-2.5 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                      {selectedTopics.length} Topik Dipilih
+                    </span>
+                  </label>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                    Centang satu atau lebih topik di bawah ini untuk menggabungkan materi butir soal ujian:
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTopics(topikList.map((t) => t.nama))}
+                    className="px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 font-bold text-xs cursor-pointer transition-all"
+                  >
+                    ✨ Pilih Semua Topik
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTopics([])}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all"
+                  >
+                    Kosongkan Topik
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {topikList.length === 0 ? (
+                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-sm text-slate-500">
+                    Pilih Mata Pelajaran terlebih dahulu untuk memuat topik kurikulum.
+                  </div>
+                ) : (
+                  topikList.map((t) => {
+                    const isChecked = selectedTopics.includes(t.nama);
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          if (isChecked) {
+                            setSelectedTopics(selectedTopics.filter((x) => x !== t.nama));
+                          } else {
+                            setSelectedTopics([...selectedTopics, t.nama]);
+                          }
+                        }}
+                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-start gap-3.5 select-none ${
+                          isChecked
+                            ? 'bg-purple-50/90 border-purple-500 ring-2 ring-purple-200 shadow-xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div
+                          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                            isChecked
+                              ? 'bg-purple-600 border-purple-600 text-white shadow-xs'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {isChecked && <Check className="w-4 h-4 stroke-[3]" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm sm:text-base font-bold text-slate-900 block leading-snug">
+                            {t.nama}
+                          </span>
+                          {t.deskripsi && (
+                            <span className="text-xs text-slate-500 mt-1 line-clamp-2 block leading-relaxed">
+                              {t.deskripsi}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              {selectedTopics.length === 0 && (
+                <p className="text-xs font-semibold text-slate-500 italic">
+                  * Jika semua topik kosong, sistem akan menampilkan seluruh soal dari mata pelajaran {mapel}.
+                </p>
+              )}
+            </div>
+
+            {/* 4. TARGET ROMBEL KELAS (Default KOSONG + Tombol Pilih Semua Rombel) */}
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-600" />
+                    <span>4. Target Rombel Kelas:</span>
+                    <span className="text-xs font-black px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                      {targetKelas.length} Rombel Terpilih
+                    </span>
+                  </label>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                    Pilih sasaran kelas ujian (siswa nantinya akan menuliskan nama kelasnya secara spesifik di portal siswa, misal: 7-A, 8-1).
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setTargetKelas([...availableRombelList])}
+                    className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 font-bold text-xs cursor-pointer transition-all"
+                  >
+                    ✨ Pilih Semua Rombel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetKelas([])}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all"
+                  >
+                    Kosongkan Pilihan
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 pt-1">
+                {availableRombelList.map((kls) => {
+                  const isChecked = targetKelas.includes(kls);
+                  return (
+                    <button
+                      type="button"
+                      key={kls}
+                      onClick={() => handleToggleTargetKelas(kls)}
+                      className={`px-6 py-3.5 rounded-2xl text-sm sm:text-base font-extrabold transition-all border-2 cursor-pointer flex items-center gap-3 ${
+                        isChecked
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-4 ring-blue-100 scale-[1.02]'
+                          : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div
+                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
+                          isChecked ? 'bg-white border-white text-blue-600' : 'border-slate-400 bg-white'
+                        }`}
+                      >
+                        {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                      </div>
+                      <span>{kls}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {targetKelas.length === 0 && (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Rombel saat ini kosong. Silakan klik salah satu rombel di atas atau gunakan tombol &quot;Pilih Semua Rombel&quot;.</span>
+                </div>
+              )}
+            </div>
+
+            {/* 5. KKM & Waktu Akses Ujian */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2 border-t border-slate-100">
+              <div className="space-y-2">
+                <label className="block text-base font-bold text-slate-800">
+                  KKM Kelulusan
+                </label>
+                <input
+                  type="number"
+                  min="50"
+                  max="100"
+                  value={kkm}
+                  onChange={(e) => setKkm(Number(e.target.value))}
+                  className="w-full p-4 text-base font-black rounded-2xl border-2 border-slate-300 text-emerald-700 bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                  <span>Waktu Mulai Akses *</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={waktuMulai}
+                  onChange={(e) => setWaktuMulai(e.target.value)}
+                  required
+                  className="w-full p-4 text-sm sm:text-base font-semibold rounded-2xl border-2 border-slate-300 text-slate-800 bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-rose-600" />
+                  <span>Waktu Selesai Akses *</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={waktuSelesai}
+                  onChange={(e) => setWaktuSelesai(e.target.value)}
+                  required
+                  className="w-full p-4 text-sm sm:text-base font-semibold rounded-2xl border-2 border-slate-300 text-slate-800 bg-white focus:border-rose-600 focus:ring-4 focus:ring-rose-100"
+                />
+                <p className="text-xs text-slate-500">
+                  * Mundurkan tanggal/jam ini jika ingin memperpanjang jadwal ujian murid.
+                </p>
+              </div>
+            </div>
+
+            {/* 6. Randomize Toggles */}
+            <div className="flex flex-wrap items-center gap-8 pt-2 border-t border-slate-100">
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={acakSoal}
+                  onChange={(e) => setAcakSoal(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 rounded"
+                />
+                <span className="text-sm sm:text-base font-bold text-slate-800">
+                  Acak Urutan Soal (Anti-Mencontek)
+                </span>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={acakOpsi}
+                  onChange={(e) => setAcakOpsi(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 rounded"
+                />
+                <span className="text-sm sm:text-base font-bold text-slate-800">
+                  Acak Pilihan Opsi PG
+                </span>
+              </label>
+            </div>
+
+            {/* 7. QUESTION PICKER SECTION */}
+            <div className="space-y-4 pt-4 border-t-2 border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <label className="text-base sm:text-lg font-black text-slate-900">
+                      Pilih Paket Butir Soal ({selectedSoalIds.length} Terpilih)
+                    </label>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 border border-blue-200">
+                      {mapel} ({jenjangForm})
+                    </span>
+                  </div>
+                  <div className="text-xs sm:text-sm text-slate-600 mt-1 flex flex-wrap items-center gap-2">
+                    <span>
+                      Total Bobot: <strong className="text-blue-700 font-black">{totalSelectedBobot} Poin</strong>
+                    </span>
+                    <span className="text-slate-300">•</span>
+                    <span>
+                      Rincian: PG ({selectedCountByType.PG}), PGK ({selectedCountByType.PGK}), Menjodohkan ({selectedCountByType.MENJODOHKAN}), Uraian ({selectedCountByType.URAIAN})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Presets */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSelectOnlyPgAndEssay}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Hanya PG & Essay</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSelectAllTopic}
+                    className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+                  >
+                    Pilih Semua Soal Topik Ini
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDeselectAll}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+                  >
+                    Batal Pilih
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Topik Banner */}
+              <div className="p-4 rounded-2xl bg-blue-50/90 border border-blue-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs sm:text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Filter className="w-4 h-4 text-blue-600 shrink-0" />
+                    Filter Topik Aktif:
+                  </span>
+                  {selectedTopics.length > 0 ? (
+                    selectedTopics.map((topikName) => (
+                      <span key={topikName} className="px-3 py-1 rounded-xl text-xs font-bold bg-blue-600 text-white shadow-xs">
+                        {topikName}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="px-3 py-1 rounded-xl text-xs font-bold bg-slate-700 text-white">
+                      Semua Topik ({mapel})
+                    </span>
+                  )}
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    {eligibleQuestions.length} Soal Belum Dirilis
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  {alreadyReleasedCountInThisTopic > 0 && (
+                    <span className="flex items-center gap-1.5 text-amber-800 font-semibold bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                      <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                      {alreadyReleasedCountInThisTopic} soal sudah pernah dirilis disembunyikan
+                    </span>
+                  )}
+
+                  <label className="flex items-center gap-1.5 cursor-pointer text-slate-700 hover:text-slate-900 font-semibold select-none ml-auto">
+                    <input
+                      type="checkbox"
+                      checked={includeReleasedSoal}
+                      onChange={(e) => setIncludeReleasedSoal(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span>Tampilkan yang sudah pernah dirilis</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Filter Tabs & Search */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs sm:text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setFilterTipeSoal('ALL')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                      filterTipeSoal === 'ALL'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    Semua ({typeCounts.ALL})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterTipeSoal('PG')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                      filterTipeSoal === 'PG'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                    }`}
+                  >
+                    PG ({typeCounts.PG})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterTipeSoal('PGK')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                      filterTipeSoal === 'PGK'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
+                    }`}
+                  >
+                    PGK ({typeCounts.PGK})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterTipeSoal('MENJODOHKAN')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                      filterTipeSoal === 'MENJODOHKAN'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
+                    }`}
+                  >
+                    Menjodohkan ({typeCounts.MENJODOHKAN})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilterTipeSoal('URAIAN')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                      filterTipeSoal === 'URAIAN'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                    }`}
+                  >
+                    Uraian ({typeCounts.URAIAN})
+                  </button>
+                </div>
+
+                <div className="relative max-w-xs w-full">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Cari butir pertanyaan..."
+                    value={searchQuerySoal}
+                    onChange={(e) => setSearchQuerySoal(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* Questions Picker List */}
+              <div className="space-y-2 border-2 border-slate-200 rounded-2xl p-4 bg-slate-50 max-h-[500px] overflow-y-auto">
+                {displayedPickerQuestions.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 space-y-2">
+                    <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
+                    <p className="text-sm font-bold text-slate-700">Tidak ada butir soal yang sesuai filter</p>
+                    <p className="text-xs text-slate-500">Coba ganti filter tipe soal atau centang topik lain di atas.</p>
+                  </div>
+                ) : (
+                  displayedPickerQuestions.map((s, idx) => {
+                    const isSelected = selectedSoalIds.includes(s.id);
+                    const typeBadgeStyle =
+                      s.tipeSoal === 'PG'
+                        ? 'bg-blue-100 text-blue-800 border-blue-300'
+                        : s.tipeSoal === 'PGK'
+                        ? 'bg-purple-100 text-purple-800 border-purple-300'
+                        : s.tipeSoal === 'MENJODOHKAN'
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                        : 'bg-emerald-100 text-emerald-900 border-emerald-300';
+
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => handleToggleSoal(s.id)}
+                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-start gap-3.5 select-none ${
+                          isSelected
+                            ? 'bg-blue-50/90 border-blue-500 ring-2 ring-blue-200 shadow-sm'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div
+                          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                            isSelected
+                              ? 'bg-blue-600 border-blue-600 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-4 h-4 stroke-[3]" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                            <span className="font-extrabold text-slate-900 text-sm">#{idx + 1}</span>
+                            <span className={`font-bold px-2 py-0.5 rounded-md text-xs border ${typeBadgeStyle}`}>
+                              {s.tipeSoal === 'PG'
+                                ? 'Pilihan Ganda'
+                                : s.tipeSoal === 'PGK'
+                                ? 'PG Kompleks'
+                                : s.tipeSoal === 'MENJODOHKAN'
+                                ? 'Menjodohkan'
+                                : 'Uraian / Essay'}
+                            </span>
+                            <span className="text-slate-700 font-semibold text-xs bg-slate-100 px-2 py-0.5 rounded-md">
+                              {s.mataPelajaran}
+                            </span>
+                            {s.topik && (
+                              <span className="text-purple-700 text-xs font-semibold truncate max-w-[260px]">
+                                ({s.topik})
+                              </span>
+                            )}
+                            {releasedSoalIds.has(s.id) && (
+                              <span className="bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded-md text-xs border border-rose-300">
+                                Sudah Pernah Dirilis
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-slate-800 font-medium text-sm sm:text-base line-clamp-2 leading-relaxed">
+                            {s.pertanyaan}
+                          </p>
+                        </div>
+                        <span className="text-xs sm:text-sm font-black text-blue-800 bg-blue-100 border border-blue-300 px-2.5 py-1 rounded-lg shrink-0">
+                          {s.bobot} Poin
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Action Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t-2 border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFormOpen(false);
+                  setEditingJadwalId(null);
+                }}
+                className="w-full sm:w-auto px-8 py-4 rounded-2xl border-2 border-slate-300 text-slate-700 text-base font-black hover:bg-slate-100 cursor-pointer transition-all"
+              >
+                ⬅️ Batal & Kembali ke Jadwal
+              </button>
+
+              <button
+                type="submit"
+                disabled={selectedSoalIds.length === 0}
+                className={`w-full sm:w-auto px-10 py-4 rounded-2xl text-white text-base sm:text-lg font-black shadow-xl transition-all flex items-center justify-center gap-3 cursor-pointer ${
+                  selectedSoalIds.length === 0
+                    ? 'bg-slate-300 cursor-not-allowed text-slate-500 shadow-none'
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30 hover:scale-[1.02]'
+                }`}
+              >
+                <CheckCircle2 className="w-6 h-6" />
+                <span>
+                  {editingJadwalId ? 'Simpan Perubahan Jadwal' : 'Simpan & Rilis Jadwal Ujian'}{' '}
+                  {selectedSoalIds.length > 0 ? `(${selectedSoalIds.length} Soal Terpilih)` : ''}
+                </span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -752,609 +1444,7 @@ export default function JadwalCBTPage() {
         )}
       </div>
 
-      {/* ======================= MODAL: RILIS JADWAL CBT BARU ======================= */}
-      {isFormOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto p-6 space-y-6 shadow-2xl border border-slate-100">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <CalendarClock className="w-5 h-5 text-blue-600" />
-                  {editingJadwalId ? 'Edit Pengaturan Sesi Jadwal Ujian' : 'Konfigurasi Jadwal Ujian CBT Baru'}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  {editingJadwalId
-                    ? 'Perbarui judul, durasi pengerjaan, rentang waktu akses ujian, target kelas, atau pilihan paket butir soal.'
-                    : 'Lengkapi materi Kurikulum Merdeka (SMP & SMA) dan tentukan butir soal yang diujikan.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFormOpen(false);
-                  setEditingJadwalId(null);
-                }}
-                className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Form */}
-            <form onSubmit={handleCreateJadwal} className="space-y-5">
-              {/* Active Teacher Creator Banner */}
-              <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center shrink-0">
-                    {guruProfile?.namaLengkap
-                      ? guruProfile.namaLengkap.slice(0, 2).toUpperCase()
-                      : 'GU'}
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-blue-700 font-bold uppercase block">
-                      Guru Penanggung Jawab / Pembuat Jadwal:
-                    </span>
-                    <span className="font-bold text-slate-800 text-sm">
-                      {guruProfile?.namaLengkap || 'Bapak/Ibu Guru Pengampu'}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full border border-emerald-200 shrink-0">
-                  Aktif Terhubung
-                </span>
-              </div>
-
-              {/* 1. Pilih Jenjang Pendidikan */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <GraduationCap className="w-4 h-4 text-blue-600" />
-                  <span>1. Jenjang Pendidikan:</span>
-                </label>
-                <div className="grid grid-cols-2 gap-3 max-w-sm">
-                  <button
-                    type="button"
-                    onClick={() => setJenjangForm('SMP')}
-                    className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between cursor-pointer ${
-                      jenjangForm === 'SMP'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-white text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    <div>
-                      <span className="font-bold text-xs block">Jenjang SMP</span>
-                      <span className={`text-[10px] ${jenjangForm === 'SMP' ? 'text-blue-100' : 'text-slate-500'}`}>
-                        Fase D (Kelas 7-9)
-                      </span>
-                    </div>
-                    {jenjangForm === 'SMP' && <Check className="w-4 h-4" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setJenjangForm('SMA')}
-                    className={`p-2.5 rounded-xl border text-left transition-all flex items-center justify-between cursor-pointer ${
-                      jenjangForm === 'SMA'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-white text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    <div>
-                      <span className="font-bold text-xs block">Jenjang SMA</span>
-                      <span className={`text-[10px] ${jenjangForm === 'SMA' ? 'text-blue-100' : 'text-slate-500'}`}>
-                        Fase E & F (Kelas 10-12)
-                      </span>
-                    </div>
-                    {jenjangForm === 'SMA' && <Check className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* 2 & 3: Judul, Mapel, Topik */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Judul Sesi Ujian *</label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: Asesmen Sumatif Akhir Semester (ASAS) Informatika 2026"
-                    value={judul}
-                    onChange={(e) => setJudul(e.target.value)}
-                    required
-                    className="w-full p-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <BookOpen className="w-4 h-4 text-indigo-600" />
-                    <span>Mata Pelajaran ({jenjangForm})</span>
-                  </label>
-                  <select
-                    value={mapel}
-                    onChange={(e) => setMapel(e.target.value)}
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 bg-white font-semibold text-slate-800"
-                  >
-                    {mapelList.map((m) => (
-                      <option key={m.id} value={m.nama}>
-                        {m.nama} [{m.kategori}]
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-purple-600" />
-                    <span>Topik Materi</span>
-                  </label>
-                  <select
-                    value={topikForm}
-                    onChange={(e) => setTopikForm(e.target.value)}
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 bg-white font-semibold text-slate-800"
-                  >
-                    {topikList.length === 0 ? (
-                      <option value="">Pilih Mata Pelajaran Dahulu</option>
-                    ) : (
-                      topikList.map((t) => (
-                        <option key={t.id} value={t.nama}>
-                          {t.nama}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-              </div>
-
-              {/* Grid: KKM & Durasi */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Durasi Pengerjaan (Menit)</label>
-                  <input
-                    type="number"
-                    min="5"
-                    max="180"
-                    value={durasiMenit}
-                    onChange={(e) => setDurasiMenit(Number(e.target.value))}
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-bold text-blue-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">KKM Kelulusan</label>
-                  <input
-                    type="number"
-                    min="50"
-                    max="100"
-                    value={kkm}
-                    onChange={(e) => setKkm(Number(e.target.value))}
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-bold text-emerald-600"
-                  />
-                </div>
-              </div>
-
-              {/* Grid: Waktu Akses Ujian (Mulai & Selesai) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Waktu Mulai Akses Ujian *</span>
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={waktuMulai}
-                    onChange={(e) => setWaktuMulai(e.target.value)}
-                    required
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-rose-600" />
-                    <span>Waktu Selesai Akses Ujian *</span>
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={waktuSelesai}
-                    onChange={(e) => setWaktuSelesai(e.target.value)}
-                    required
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 font-medium text-slate-800 focus:ring-2 focus:ring-rose-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    * Mundurkan tanggal/jam ini jika ingin memperpanjang waktu ujian untuk minggu depan.
-                  </p>
-                </div>
-              </div>
-
-              {/* Target Kelas */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Target Rombel Kelas:</label>
-                <p className="text-[11px] text-slate-500 mb-2">
-                  Pilih sasaran rombel ujian (murid nantinya akan menuliskan nama kelasnya secara spesifik di portal siswa, misal: 7-A, 8-1):
-                </p>
-                <div className="flex flex-wrap gap-2.5">
-                  {['Kelas 7 SMP', 'Kelas 8 SMP'].map((kls) => {
-                    const isChecked = targetKelas.includes(kls);
-                    return (
-                      <button
-                        type="button"
-                        key={kls}
-                        onClick={() => handleToggleTargetKelas(kls)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer flex items-center gap-2 ${
-                          isChecked
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-300'
-                            : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
-                        }`}
-                      >
-                        {isChecked && <Check className="w-3.5 h-3.5" />}
-                        <span>{kls}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Randomize Toggles */}
-              <div className="flex flex-wrap items-center gap-6 pt-1 text-xs">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={acakSoal}
-                    onChange={(e) => setAcakSoal(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded"
-                  />
-                  <span className="font-semibold text-slate-700">Acak Urutan Soal (Anti-Mencontek)</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={acakOpsi}
-                    onChange={(e) => setAcakOpsi(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded"
-                  />
-                  <span className="font-semibold text-slate-700">Acak Pilihan Opsi PG</span>
-                </label>
-              </div>
-
-              {/* QUESTION PICKER SECTION */}
-              <div className="space-y-3 pt-3 border-t border-slate-100">
-                {/* Header & Quick Action Buttons */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-bold text-slate-900">
-                        Pilih Paket Butir Soal ({selectedSoalIds.length} Terpilih)
-                      </label>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200">
-                        {mapel} ({jenjangForm})
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-2">
-                      <span>
-                        Total Bobot: <strong className="text-blue-600 font-bold">{totalSelectedBobot} Poin</strong>
-                      </span>
-                      <span className="text-slate-300">•</span>
-                      <span className="text-slate-600">
-                        Rincian: PG ({selectedCountByType.PG}), PGK ({selectedCountByType.PGK}), Menjodohkan ({selectedCountByType.MENJODOHKAN}), Uraian ({selectedCountByType.URAIAN})
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Quick Presets */}
-                  <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
-                    <button
-                      type="button"
-                      onClick={handleSelectOnlyPgAndEssay}
-                      title="Pilih butir soal Pilihan Ganda & Uraian/Essay saja"
-                      className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Hanya PG & Essay</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleSelectAllTopic}
-                      className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-semibold text-xs transition-colors cursor-pointer"
-                    >
-                      Pilih Semua Soal Topik Ini
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleDeselectAll}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold text-xs transition-colors cursor-pointer"
-                    >
-                      Batal Pilih
-                    </button>
-                  </div>
-                </div>
-
-                {/* Banner Filter Topik & Status Soal Dirilis */}
-                <div className="p-3 rounded-xl bg-blue-50/90 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <Filter className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      Filter Topik:
-                    </span>
-                    <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-xs">
-                      {topikForm || mapel}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      {eligibleQuestions.length} Soal Belum Dirilis
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    {alreadyReleasedCountInThisTopic > 0 ? (
-                      <span className="flex items-center gap-1 text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        {alreadyReleasedCountInThisTopic} soal sudah pernah dirilis disembunyikan
-                      </span>
-                    ) : (
-                      <span className="text-slate-500 text-[10px]">
-                        Semua soal pada topik ini siap digunakan
-                      </span>
-                    )}
-
-                    <label className="flex items-center gap-1 cursor-pointer text-slate-600 hover:text-slate-900 select-none ml-auto">
-                      <input
-                        type="checkbox"
-                        checked={includeReleasedSoal}
-                        onChange={(e) => setIncludeReleasedSoal(e.target.checked)}
-                        className="w-3.5 h-3.5 text-blue-600 rounded"
-                      />
-                      <span>Tampilkan yang sudah dirilis</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Filter Tipe Soal Tabs & Search Input */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-                  {/* Tipe Soal Filter Tabs */}
-                  <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                    <button
-                      type="button"
-                      onClick={() => setFilterTipeSoal('ALL')}
-                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                        filterTipeSoal === 'ALL'
-                          ? 'bg-slate-800 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Semua ({typeCounts.ALL})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFilterTipeSoal('PG')}
-                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                        filterTipeSoal === 'PG'
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
-                      }`}
-                    >
-                      PG ({typeCounts.PG})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFilterTipeSoal('PGK')}
-                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                        filterTipeSoal === 'PGK'
-                          ? 'bg-purple-600 text-white shadow-xs'
-                          : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
-                      }`}
-                    >
-                      PGK ({typeCounts.PGK})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFilterTipeSoal('MENJODOHKAN')}
-                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                        filterTipeSoal === 'MENJODOHKAN'
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
-                      }`}
-                    >
-                      Menjodohkan ({typeCounts.MENJODOHKAN})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFilterTipeSoal('URAIAN')}
-                      className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                        filterTipeSoal === 'URAIAN'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
-                      }`}
-                    >
-                      Uraian / Essay ({typeCounts.URAIAN})
-                    </button>
-                  </div>
-
-                  {/* Search Box */}
-                  <div className="relative max-w-xs w-full">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Cari butir pertanyaan..."
-                      value={searchQuerySoal}
-                      onChange={(e) => setSearchQuerySoal(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Scope Toggle */}
-                <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showAllMapelSoal}
-                      onChange={(e) => setShowAllMapelSoal(e.target.checked)}
-                      className="w-3.5 h-3.5 text-blue-600 rounded"
-                    />
-                    <span>Tampilkan juga seluruh soal dari topik / mapel lain ({soalList.length} butir)</span>
-                  </label>
-                  <span>Menampilkan {displayedPickerQuestions.length} butir soal</span>
-                </div>
-
-                {/* List of selectable questions */}
-                {soalList.length === 0 ? (
-                  <div className="p-6 rounded-2xl bg-amber-50/70 border border-amber-200 text-center space-y-2">
-                    <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
-                    <p className="text-xs font-bold text-amber-900">
-                      Bank Soal Anda saat ini masih kosong
-                    </p>
-                    <p className="text-[11px] text-slate-600 max-w-sm mx-auto">
-                      Silakan buka menu <b>Bank Soal</b> untuk men-generate soal AI (Gemini) atau membuat soal terlebih dahulu sebelum merilis jadwal ujian.
-                    </p>
-                    <Link
-                      href="/guru/bank-soal"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Ke Bank Soal & Generate Soal AI</span>
-                    </Link>
-                  </div>
-                ) : eligibleQuestions.length === 0 && !showAllMapelSoal ? (
-                  <div className="p-6 rounded-2xl bg-blue-50/70 border border-blue-200 text-center space-y-2">
-                    <BookOpen className="w-8 h-8 text-blue-600 mx-auto" />
-                    <p className="text-xs font-bold text-slate-900">
-                      Belum ada butir soal baru untuk Topik &ldquo;{topikForm || mapel}&rdquo; ({jenjangForm})
-                    </p>
-                    <p className="text-[11px] text-slate-600 max-w-md mx-auto">
-                      {alreadyReleasedCountInThisTopic > 0
-                        ? `Terdapat ${alreadyReleasedCountInThisTopic} butir soal pada topik ini yang sudah pernah dirilis di jadwal ujian lain. Sistem secara otomatis menyaringnya agar soal tidak berulang ke siswa.`
-                        : `Belum ada butir soal di Bank Soal untuk topik ini. Silakan buat atau generate soal AI untuk topik ini terlebih dahulu.`}
-                    </p>
-                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                      <Link
-                        href={`/guru/bank-soal?tab=generator`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 shadow-xs"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>+ Buat / Generate Soal AI untuk Topik Ini</span>
-                      </Link>
-                      {alreadyReleasedCountInThisTopic > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setIncludeReleasedSoal(true)}
-                          className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-lg text-xs font-semibold hover:bg-amber-50 cursor-pointer"
-                        >
-                          Tampilkan {alreadyReleasedCountInThisTopic} Soal yang Sudah Dirilis
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : displayedPickerQuestions.length === 0 ? (
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 text-center space-y-1">
-                    <AlertCircle className="w-6 h-6 text-slate-400 mx-auto" />
-                    <p className="text-xs font-bold text-slate-700">Tidak ada butir soal yang cocok</p>
-                    <p className="text-[11px] text-slate-500">
-                      Coba ganti filter tipe soal atau hapus kata kunci pencarian.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="max-h-64 overflow-y-auto space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50">
-                    {displayedPickerQuestions.map((s, idx) => {
-                      const isSelected = selectedSoalIds.includes(s.id);
-                      const typeBadgeStyle =
-                        s.tipeSoal === 'PG'
-                          ? 'bg-blue-100 text-blue-700 border-blue-200'
-                          : s.tipeSoal === 'PGK'
-                          ? 'bg-purple-100 text-purple-700 border-purple-200'
-                          : s.tipeSoal === 'MENJODOHKAN'
-                          ? 'bg-amber-100 text-amber-800 border-amber-200'
-                          : 'bg-emerald-100 text-emerald-800 border-emerald-200';
-
-                      return (
-                        <div
-                          key={s.id}
-                          onClick={() => handleToggleSoal(s.id)}
-                          className={`p-3 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3 ${
-                            isSelected
-                              ? 'bg-blue-50/90 border-blue-400 ring-1 ring-blue-300 shadow-xs'
-                              : 'bg-white border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            className="w-4 h-4 text-blue-600 rounded mt-0.5 pointer-events-none shrink-0"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                              <span className="font-bold text-slate-800">#{idx + 1}</span>
-                              <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] border ${typeBadgeStyle}`}>
-                                {s.tipeSoal === 'PG'
-                                  ? 'Pilihan Ganda'
-                                  : s.tipeSoal === 'PGK'
-                                  ? 'PG Kompleks'
-                                  : s.tipeSoal === 'MENJODOHKAN'
-                                  ? 'Menjodohkan'
-                                  : 'Uraian / Essay'}
-                              </span>
-                              <span className="text-slate-600 font-medium text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">
-                                {s.mataPelajaran}
-                              </span>
-                              {s.topik && (
-                                <span className="text-purple-700 text-[10px] font-medium truncate max-w-[200px]">
-                                  ({s.topik})
-                                </span>
-                              )}
-                              {releasedSoalIds.has(s.id) && (
-                                <span className="bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded text-[10px] border border-rose-300">
-                                  Sudah Pernah Dirilis
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-slate-800 font-medium line-clamp-2 leading-relaxed">
-                              {s.pertanyaan}
-                            </p>
-                          </div>
-                          <span className="text-[11px] font-bold text-blue-700 bg-blue-100/70 border border-blue-200 px-2 py-0.5 rounded shrink-0">
-                            {s.bobot} Poin
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsFormOpen(false);
-                    setEditingJadwalId(null);
-                  }}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50 cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={selectedSoalIds.length === 0}
-                  className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer ${
-                    selectedSoalIds.length === 0
-                      ? 'bg-slate-300 cursor-not-allowed text-slate-500'
-                      : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
-                  }`}
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>
-                    {editingJadwalId ? 'Simpan Perubahan Jadwal' : 'Simpan & Rilis Jadwal Ujian'}{' '}
-                    {selectedSoalIds.length > 0 ? `(${selectedSoalIds.length} Soal)` : ''}
-                  </span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Catatan: Form Konfigurasi Jadwal kini tampil menyatu sebagai Sub-Halaman Penuh (Full Page) */}
 
       {/* ================= MODAL BAGIKAN LINK UJIAN KE MURID ================= */}
       {shareModalJadwal && (

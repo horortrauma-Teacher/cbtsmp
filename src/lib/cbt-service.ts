@@ -433,7 +433,7 @@ export const submitExam = async (
       nama: `Siswa (${studentId})`,
       nisn: studentId,
       kelas: exam?.tingkat_kelas || 'Kelas VIII',
-      sekolah: 'SMP Negeri 1 Nusantara',
+      sekolah: 'SMPS Daar El-Qolam',
       role: 'siswa',
     };
   }

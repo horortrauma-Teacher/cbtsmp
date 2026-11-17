@@ -266,6 +266,7 @@ export function AIGeneratorModal({
           levelKognitif,
           customPrompt,
           pembuat: guruProfile?.namaLengkap || 'Guru Pengampu CBT',
+          userEmail: guruProfile?.email || (typeof window !== 'undefined' ? (localStorage.getItem('cbt_guru_session') ? JSON.parse(localStorage.getItem('cbt_guru_session') || '{}')?.email : undefined) : undefined),
           documentText: modeSumber === 'dokumen' ? uploadedDocText : undefined,
           documentName: modeSumber === 'dokumen' ? uploadedDocName : undefined
         })
@@ -277,6 +278,9 @@ export function AIGeneratorModal({
       const result = await response.json();
 
       if (result.success && Array.isArray(result.soal)) {
+        if (typeof result.remainingQuota === 'number' && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('unified-quota-changed', { detail: { quota: result.remainingQuota } }));
+        }
         setGeneratedSoal(result.soal);
         setAiProvider(result.provider);
         setWebSources(result.webSources || []);

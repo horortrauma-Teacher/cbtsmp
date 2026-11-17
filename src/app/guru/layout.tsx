@@ -21,8 +21,10 @@ import {
   LogOut,
   UserCheck,
   Radio,
+  ExternalLink,
 } from 'lucide-react';
 import { getGuruProfile, logoutGuru, GuruProfile } from '@/lib/guru-auth';
+import { getUnifiedQuota } from '@/lib/cbt-quota-service';
 
 const NAV_ITEMS = [
   {
@@ -66,6 +68,7 @@ export default function GuruLayout({
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<GuruProfile | null>(null);
+  const [unifiedQuota, setUnifiedQuota] = useState<number | null>(null);
 
   useEffect(() => {
     // Load initial profile
@@ -76,6 +79,17 @@ export default function GuruLayout({
       router.push('/guru/login');
     }
 
+    // Load unified quota
+    const loadQuota = async () => {
+      try {
+        const q = await getUnifiedQuota(current?.email);
+        setUnifiedQuota(q);
+      } catch (err) {
+        console.warn('[UnifiedQuota] Failed loading quota:', err);
+      }
+    };
+    loadQuota();
+
     // Listen to profile change event across window
     const handleAuthChange = () => {
       const p = getGuruProfile();
@@ -83,10 +97,23 @@ export default function GuruLayout({
       if (!p && pathname !== '/guru/login' && pathname !== '/guru/register') {
         router.push('/guru/login');
       }
+      loadQuota();
+    };
+
+    const handleQuotaChange = (e: any) => {
+      if (typeof e.detail?.quota === 'number') {
+        setUnifiedQuota(e.detail.quota);
+      } else {
+        loadQuota();
+      }
     };
 
     window.addEventListener('guru-auth-change', handleAuthChange);
-    return () => window.removeEventListener('guru-auth-change', handleAuthChange);
+    window.addEventListener('unified-quota-changed', handleQuotaChange);
+    return () => {
+      window.removeEventListener('guru-auth-change', handleAuthChange);
+      window.removeEventListener('unified-quota-changed', handleQuotaChange);
+    };
   }, [pathname, router]);
 
   const handleLogout = () => {
@@ -230,6 +257,30 @@ export default function GuruLayout({
               </Link>
             </div>
           )}
+
+          {/* Layanan Terpadu: Modul Ajar AI */}
+          <div className="pt-3 pb-1 border-t border-slate-800/80">
+            <p className="px-3 pb-2 text-[11px] font-bold tracking-wider text-emerald-400 uppercase flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Ekosistem Guru Hebat</span>
+            </p>
+            <a
+              href="http://localhost:3001"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200 text-emerald-300 hover:bg-emerald-950/50 hover:text-white border border-emerald-500/30 bg-emerald-500/10 shadow-xs cursor-pointer"
+              title="Buka Generator Modul Ajar, RPP & LKPD Berbasis AI (Localhost:3001)"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-base">📚</span>
+                <div className="text-left">
+                  <span className="font-bold block leading-tight">Modul Ajar AI</span>
+                  <span className="text-[10px] text-emerald-400/80 block">RPP, LKPD & CP Merdeka</span>
+                </div>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+            </a>
+          </div>
         </nav>
 
         {/* Bottom Actions & User Profile */}
@@ -308,10 +359,36 @@ export default function GuruLayout({
 
           {/* Right: School Info, Token Indicator, Notif, Teacher Profile */}
           <div className="flex items-center gap-3 sm:gap-4">
+            {/* Unified Quota Badge (Terhubung ModulGen AI) */}
+            <a
+              href="http://localhost:3001"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition-colors shadow-xs cursor-pointer"
+              title="Kredit Terpadu Guru (Dapat digunakan untuk Modul Ajar, LKPD & Bank Soal CBT)"
+            >
+              <span>🪙</span>
+              <span>{unifiedQuota !== null ? unifiedQuota : '10'} Kredit</span>
+              <span className="hidden xl:inline text-[10px] font-medium text-amber-700/80">• Terpadu</span>
+            </a>
+
+            {/* Direct Switcher ke Modul Ajar AI */}
+            <a
+              href="http://localhost:3001"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-300 transition-colors shadow-xs cursor-pointer"
+              title="Buka Aplikasi Modul Ajar AI (RPP & LKPD di Localhost:3001)"
+            >
+              <span>📚</span>
+              <span>Modul Ajar AI</span>
+              <ExternalLink className="w-3 h-3 text-emerald-600" />
+            </a>
+
             {/* School Tag */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium border border-slate-200">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>SMP Negeri 1 Nusantara</span>
+              <span>SMPS Daar El-Qolam</span>
               <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
               <span className="text-slate-500 font-mono">TA 2026/2027</span>
             </div>

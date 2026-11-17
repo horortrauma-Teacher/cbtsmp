@@ -6,6 +6,7 @@ import { GuruAccount } from '@/types/cbt';
 
 export interface GuruSession {
   username: string;
+  email?: string;
   namaLengkap: string;
   nip: string;
   sekolah: string;

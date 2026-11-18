@@ -53,31 +53,37 @@ export default function GuruOverviewPage() {
     return () => window.removeEventListener('guru-auth-change', handleAuth);
   }, []);
 
-  // Metric computations
-  const totalSoal = soalList.length;
-  const hotsCount = soalList.filter((s) => s.isHots).length;
-  const regularCount = totalSoal - hotsCount;
+  // Metric computations with strict null-safety
+  const totalSoal = soalList?.length || 0;
+  const hotsCount = (soalList || []).filter((s) => Boolean(s?.isHots)).length;
+  const regularCount = Math.max(0, totalSoal - hotsCount);
   const hotsPercentage = totalSoal > 0 ? Math.round((hotsCount / totalSoal) * 100) : 0;
 
-  const jadwalAktif = jadwalList.filter((j) => j.status === 'SEDANG_BERLANGSUNG').length;
-  const totalJadwal = jadwalList.length;
+  const jadwalAktif = (jadwalList || []).filter((j) => j?.status === 'SEDANG_BERLANGSUNG').length;
+  const totalJadwal = jadwalList?.length || 0;
 
   const totalSiswa = 128; // Enrolled across classes 7A-8D
-  const totalSubmissions = hasilList.length;
+  const totalSubmissions = hasilList?.length || 0;
 
   const averageScore =
-    hasilList.length > 0
-      ? (hasilList.reduce((acc, curr) => acc + curr.nilaiAkhir, 0) / hasilList.length).toFixed(1)
+    hasilList && hasilList.length > 0
+      ? (hasilList.reduce((acc, curr) => acc + (Number(curr?.nilaiAkhir) || 0), 0) / hasilList.length).toFixed(1)
       : '0';
 
-  const tuntasCount = hasilList.filter((h) => h.statusKelulusan === 'TUNTAS').length;
-  const ketuntasanPersen = hasilList.length > 0 ? Math.round((tuntasCount / hasilList.length) * 100) : 0;
+  const tuntasCount = (hasilList || []).filter((h) => h?.statusKelulusan === 'TUNTAS').length;
+  const ketuntasanPersen = hasilList && hasilList.length > 0 ? Math.round((tuntasCount / hasilList.length) * 100) : 0;
 
-  // Breakdown by AKM subjects
-  const literasiCount = soalList.filter((s) => s.mataPelajaran.toLowerCase().includes('literasi')).length;
-  const numerasiCount = soalList.filter((s) => s.mataPelajaran.toLowerCase().includes('numerasi')).length;
-  const sainsCount = soalList.filter((s) => s.mataPelajaran.toLowerCase().includes('ipa') || s.mataPelajaran.toLowerCase().includes('sains')).length;
-  const ipsCount = soalList.filter((s) => s.mataPelajaran.toLowerCase().includes('ips') || s.mataPelajaran.toLowerCase().includes('sosial')).length;
+  // Breakdown by AKM subjects with strict null-safety
+  const literasiCount = (soalList || []).filter((s) => (s?.mataPelajaran || '').toLowerCase().includes('literasi')).length;
+  const numerasiCount = (soalList || []).filter((s) => (s?.mataPelajaran || '').toLowerCase().includes('numerasi')).length;
+  const sainsCount = (soalList || []).filter((s) => {
+    const mp = (s?.mataPelajaran || '').toLowerCase();
+    return mp.includes('ipa') || mp.includes('sains');
+  }).length;
+  const ipsCount = (soalList || []).filter((s) => {
+    const mp = (s?.mataPelajaran || '').toLowerCase();
+    return mp.includes('ips') || mp.includes('sosial');
+  }).length;
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-12">
@@ -446,32 +452,34 @@ export default function GuruOverviewPage() {
               </span>
             </div>
 
-            {jadwalList.filter((j) => j.status === 'SEDANG_BERLANGSUNG').slice(0, 1).map((jadwal) => (
+            {(jadwalList || []).filter((j) => j?.status === 'SEDANG_BERLANGSUNG').slice(0, 1).map((jadwal) => (
               <div key={jadwal.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    {jadwal.mataPelajaran}
+                    {jadwal.mataPelajaran || 'Umum'}
                   </span>
                   <div className="flex items-center gap-1.5 font-mono font-bold text-xs bg-slate-800 text-amber-300 px-2.5 py-1 rounded-md shadow-sm">
                     <span>TOKEN:</span>
-                    <span className="tracking-widest">{jadwal.token}</span>
+                    <span className="tracking-widest">{jadwal.token || '------'}</span>
                   </div>
                 </div>
 
-                <p className="text-xs font-bold text-slate-800 line-clamp-2">{jadwal.judul}</p>
+                <p className="text-xs font-bold text-slate-800 line-clamp-2">{jadwal.judul || 'Sesi Ujian CBT'}</p>
 
                 <div className="text-[11px] text-slate-500 space-y-1">
                   <div className="flex justify-between">
                     <span>Target Kelas:</span>
-                    <span className="font-semibold text-slate-700">{jadwal.targetKelas.join(', ')}</span>
+                    <span className="font-semibold text-slate-700">
+                      {Array.isArray(jadwal.targetKelas) ? jadwal.targetKelas.join(', ') : String(jadwal.targetKelas || '-')}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Durasi Waktu:</span>
-                    <span className="font-semibold text-slate-700">{jadwal.durasiMenit} Menit</span>
+                    <span className="font-semibold text-slate-700">{jadwal.durasiMenit || 90} Menit</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Jumlah Soal:</span>
-                    <span className="font-semibold text-slate-700">{jadwal.totalSoal} butir (Bobot {jadwal.totalBobot})</span>
+                    <span className="font-semibold text-slate-700">{jadwal.totalSoal || 0} butir (Bobot {jadwal.totalBobot || 0})</span>
                   </div>
                 </div>
 
@@ -498,19 +506,19 @@ export default function GuruOverviewPage() {
             </div>
 
             <div className="space-y-3">
-              {hasilList.slice(0, 4).map((res) => (
+              {(hasilList || []).slice(0, 4).map((res) => (
                 <div
-                  key={res.id}
+                  key={res.id || Math.random().toString()}
                   className="p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200 flex items-center justify-between gap-3 text-xs"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center shrink-0 border border-slate-200">
-                      {res.namaSiswa.substring(0, 2).toUpperCase()}
+                      {(res?.namaSiswa || 'SW').slice(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-800 truncate">{res.namaSiswa}</p>
+                      <p className="font-semibold text-slate-800 truncate">{res?.namaSiswa || 'Siswa CBT'}</p>
                       <p className="text-[11px] text-slate-400">
-                        {res.kelas} • {res.waktuSubmit.split(' ')[1] || 'Baru saja'}
+                        {res?.kelas || '-'} • {res?.waktuSubmit ? (res.waktuSubmit.includes(' ') ? res.waktuSubmit.split(' ')[1] : res.waktuSubmit) : 'Baru saja'}
                       </p>
                     </div>
                   </div>
@@ -518,19 +526,19 @@ export default function GuruOverviewPage() {
                   <div className="text-right shrink-0">
                     <div
                       className={`font-black text-sm ${
-                        res.statusKelulusan === 'TUNTAS' ? 'text-emerald-600' : 'text-rose-600'
+                        res?.statusKelulusan === 'TUNTAS' ? 'text-emerald-600' : 'text-rose-600'
                       }`}
                     >
-                      {res.nilaiAkhir}
+                      {res?.nilaiAkhir ?? 0}
                     </div>
                     <span
                       className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                        res.statusKelulusan === 'TUNTAS'
+                        res?.statusKelulusan === 'TUNTAS'
                           ? 'bg-emerald-50 text-emerald-700'
                           : 'bg-rose-50 text-rose-700'
                       }`}
                     >
-                      {res.statusKelulusan}
+                      {res?.statusKelulusan || 'SELESAI'}
                     </span>
                   </div>
                 </div>

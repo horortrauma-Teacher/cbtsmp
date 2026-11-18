@@ -26,6 +26,8 @@ import {
 import { getGuruProfile, logoutGuru, GuruProfile } from '@/lib/guru-auth';
 import { getUnifiedQuota } from '@/lib/cbt-quota-service';
 
+const MODULGEN_URL = process.env.NEXT_PUBLIC_MODULGEN_URL || 'https://modul-ajar-guru.vercel.app';
+
 const NAV_ITEMS = [
   {
     name: 'Beranda / Overview',
@@ -265,11 +267,11 @@ export default function GuruLayout({
               <span>Ekosistem Guru Hebat</span>
             </p>
             <a
-              href="http://localhost:3001"
+              href={MODULGEN_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="group flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200 text-emerald-300 hover:bg-emerald-950/50 hover:text-white border border-emerald-500/30 bg-emerald-500/10 shadow-xs cursor-pointer"
-              title="Buka Generator Modul Ajar, RPP & LKPD Berbasis AI (Localhost:3001)"
+              title="Buka Generator Modul Ajar, RPP & LKPD Berbasis AI"
             >
               <div className="flex items-center gap-2.5">
                 <span className="text-base">📚</span>
@@ -361,7 +363,7 @@ export default function GuruLayout({
           <div className="flex items-center gap-3 sm:gap-4">
             {/* Unified Quota Badge (Terhubung ModulGen AI) */}
             <a
-              href="http://localhost:3001"
+              href={MODULGEN_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition-colors shadow-xs cursor-pointer"
@@ -374,11 +376,11 @@ export default function GuruLayout({
 
             {/* Direct Switcher ke Modul Ajar AI */}
             <a
-              href="http://localhost:3001"
+              href={MODULGEN_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-300 transition-colors shadow-xs cursor-pointer"
-              title="Buka Aplikasi Modul Ajar AI (RPP & LKPD di Localhost:3001)"
+              title="Buka Aplikasi Modul Ajar AI (RPP & LKPD Guru Hebat)"
             >
               <span>📚</span>
               <span>Modul Ajar AI</span>

@@ -56,6 +56,29 @@ export function getActiveGuruEmail(): string {
 export async function getUnifiedQuota(email?: string): Promise<number> {
   const targetEmail = (email || getActiveGuruEmail()).toLowerCase().trim();
 
+  // 1. Di browser (client-side), panggil API route server-side untuk menghindari restriksi RLS
+  if (typeof window !== 'undefined') {
+    try {
+      const res = await fetch(`/api/quota?email=${encodeURIComponent(targetEmail)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (typeof json.quota === 'number') {
+          localStorage.setItem(QUOTA_LOCAL_STORAGE_KEY, String(json.quota));
+          return json.quota;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('[UnifiedQuota] Fetch API client-side gagal, beralih ke cache:', apiErr);
+    }
+
+    const cached = localStorage.getItem(QUOTA_LOCAL_STORAGE_KEY);
+    if (cached !== null && !isNaN(Number(cached))) {
+      return Number(cached);
+    }
+    return FALLBACK_DEFAULT_QUOTA;
+  }
+
+  // 2. Di server-side, panggil Supabase secara langsung menggunakan Service Role Key
   try {
     const { data, error } = await quotaClient
       .from('users')
@@ -64,9 +87,6 @@ export async function getUnifiedQuota(email?: string): Promise<number> {
       .maybeSingle();
 
     if (!error && data && typeof data.quota === 'number') {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(QUOTA_LOCAL_STORAGE_KEY, String(data.quota));
-      }
       return data.quota;
     }
 
@@ -86,9 +106,6 @@ export async function getUnifiedQuota(email?: string): Promise<number> {
           ]);
 
         if (!insertErr) {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(QUOTA_LOCAL_STORAGE_KEY, String(FALLBACK_DEFAULT_QUOTA));
-          }
           return FALLBACK_DEFAULT_QUOTA;
         }
       } catch (insertEx) {
@@ -96,15 +113,7 @@ export async function getUnifiedQuota(email?: string): Promise<number> {
       }
     }
   } catch (err) {
-    console.warn('[UnifiedQuota] Gagal fetch kuota dari Supabase, menggunakan cache:', err);
-  }
-
-  // Fallback cache lokal jika offline
-  if (typeof window !== 'undefined') {
-    const cached = localStorage.getItem(QUOTA_LOCAL_STORAGE_KEY);
-    if (cached !== null && !isNaN(Number(cached))) {
-      return Number(cached);
-    }
+    console.warn('[UnifiedQuota] Gagal fetch kuota dari Supabase server-side:', err);
   }
 
   return FALLBACK_DEFAULT_QUOTA;

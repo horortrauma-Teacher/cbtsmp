@@ -23,6 +23,51 @@ const STORAGE_KEYS = {
 };
 
 /**
+ * Menyimpan data ke localStorage dengan aman tanpa menyebabkan QuotaExceededError crash.
+ * Jika kuota penyimpanan browser penuh (limit ~5MB), bersihkan cache lama dan simpan versi ringkas.
+ */
+function safeSetItem(key: string, data: any): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const serialized = typeof data === 'string' ? data : JSON.stringify(data);
+    localStorage.setItem(key, serialized);
+  } catch (err: any) {
+    console.warn(`[Store Storage] Kuota localStorage terlampaui saat menulis ${key}:`, err?.message || err);
+    // 1. Bersihkan kunci duplikat versi lama (v1/v2) untuk membebaskan kuota
+    try {
+      localStorage.removeItem('cbt_soal_list');
+      localStorage.removeItem('cbt_jadwal_list');
+      localStorage.removeItem('cbt_stimulus_list');
+      localStorage.removeItem('cbt_hasil_list');
+    } catch {}
+
+    // 2. Jika data berupa hasil ujian siswa (yang berukuran besar karena ada jawabanDetail & breakdown),
+    // kita simpan versi ringkas (tanpa jawabanDetail & breakdown) agar tetap muat di localStorage
+    if (key === STORAGE_KEYS.HASIL && Array.isArray(data)) {
+      try {
+        const lightweight = data.map((h: any) => ({
+          id: h?.id,
+          jadwalId: h?.jadwalId,
+          namaSiswa: h?.namaSiswa,
+          nisn: h?.nisn,
+          kelas: h?.kelas,
+          waktuSubmit: h?.waktuSubmit,
+          durasiPengerjaan: h?.durasiPengerjaan,
+          nilaiAkhir: h?.nilaiAkhir,
+          statusKelulusan: h?.statusKelulusan,
+        }));
+        localStorage.setItem(key, JSON.stringify(lightweight));
+      } catch {
+        // Jika bahkan versi ringkas tidak muat, jangan crash (state React di memori tetap utuh)
+        try {
+          localStorage.removeItem(key);
+        } catch {}
+      }
+    }
+  }
+}
+
+/**
  * Memastikan item hanya dimiliki oleh guru yang sedang aktif login
  */
 export function isItemOwnedByGuru(
@@ -134,30 +179,22 @@ export function useCBTData() {
         if (data.success) {
           if (Array.isArray(data.soalList) && data.soalList.length > 0) {
             setRawSoalList(data.soalList);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(STORAGE_KEYS.SOAL, JSON.stringify(data.soalList));
-            }
+            safeSetItem(STORAGE_KEYS.SOAL, data.soalList);
           }
           if (Array.isArray(data.stimulusList) && data.stimulusList.length > 0) {
             setRawStimulusList(data.stimulusList);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(STORAGE_KEYS.STIMULUS, JSON.stringify(data.stimulusList));
-            }
+            safeSetItem(STORAGE_KEYS.STIMULUS, data.stimulusList);
           }
           if (Array.isArray(data.jadwalList) && data.jadwalList.length > 0) {
             setRawJadwalList(data.jadwalList);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(STORAGE_KEYS.JADWAL, JSON.stringify(data.jadwalList));
-            }
+            safeSetItem(STORAGE_KEYS.JADWAL, data.jadwalList);
           }
 
           if (Array.isArray(data.hasilList)) {
             const { list: healedHasil } = autoHealHasilList(data.hasilList);
             if (healedHasil.length > 0) {
               setRawHasilList(healedHasil);
-              if (typeof window !== 'undefined') {
-                localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify(healedHasil));
-              }
+              safeSetItem(STORAGE_KEYS.HASIL, healedHasil);
             }
           }
         }
@@ -172,16 +209,16 @@ export function useCBTData() {
   useEffect(() => {
     if (typeof window !== 'undefined' && isLoaded) {
       if (rawSoalList.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.SOAL, JSON.stringify(rawSoalList));
+        safeSetItem(STORAGE_KEYS.SOAL, rawSoalList);
       }
       if (rawStimulusList.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.STIMULUS, JSON.stringify(rawStimulusList));
+        safeSetItem(STORAGE_KEYS.STIMULUS, rawStimulusList);
       }
       if (rawJadwalList.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.JADWAL, JSON.stringify(rawJadwalList));
+        safeSetItem(STORAGE_KEYS.JADWAL, rawJadwalList);
       }
       if (rawHasilList.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify(rawHasilList));
+        safeSetItem(STORAGE_KEYS.HASIL, rawHasilList);
       }
     }
   }, [rawSoalList, rawStimulusList, rawJadwalList, rawHasilList, isLoaded]);
@@ -315,13 +352,12 @@ export function useCBTData() {
     // 1. Simpan ke local state memori
     setRawHasilList((prev) => [newHasil, ...prev.filter((h) => h.id !== newHasil.id)]);
 
-    // 2. Simpan cadangan ke localStorage
+    // 2. Simpan cadangan ke localStorage secara aman
     try {
       const existingRaw = localStorage.getItem(STORAGE_KEYS.HASIL);
       const list = existingRaw ? JSON.parse(existingRaw) : [];
       const filtered = list.filter((h: any) => h.id !== newHasil.id);
-      localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify([newHasil, ...filtered]));
-      localStorage.setItem('cbt_hasil_list', JSON.stringify([newHasil, ...filtered]));
+      safeSetItem(STORAGE_KEYS.HASIL, [newHasil, ...filtered]);
     } catch (e) {
       console.warn('[store] localStorage hasil backup warning:', e);
     }
@@ -356,12 +392,7 @@ export function useCBTData() {
   const deleteHasil = (id: string) => {
     setRawHasilList((prev) => {
       const updated = prev.filter((h) => h.id !== id);
-      try {
-        localStorage.setItem(STORAGE_KEYS.HASIL, JSON.stringify(updated));
-        localStorage.setItem('cbt_hasil_list', JSON.stringify(updated));
-      } catch (e) {
-        // ignore
-      }
+      safeSetItem(STORAGE_KEYS.HASIL, updated);
       return updated;
     });
 

@@ -153,7 +153,9 @@ export async function deductUnifiedQuota(
   }
 
   if (typeof window !== 'undefined') {
-    localStorage.setItem(QUOTA_LOCAL_STORAGE_KEY, String(newQuota));
+    try {
+      localStorage.setItem(QUOTA_LOCAL_STORAGE_KEY, String(newQuota));
+    } catch {}
     window.dispatchEvent(new CustomEvent('unified-quota-changed', { detail: { quota: newQuota } }));
   }
 
